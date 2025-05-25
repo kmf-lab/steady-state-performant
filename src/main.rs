@@ -48,18 +48,22 @@ fn build_graph(graph: &mut Graph) {
     let actor_builder = graph.actor_builder()
         .with_mcpu_avg();
 
+    let mut team = ActorTeam::new(graph); //TODO: rewrite ...
+        
     let state = new_state();
     actor_builder.with_name(NAME_HEARTBEAT)
         .build(move |context| {
             actor::heartbeat::run(context, heartbeat_tx.clone(), state.clone())
-        }, &mut Threading::Spawn);
+        }, &mut Threading::Join(&mut team));
 
     let state = new_state();
     actor_builder.with_name(NAME_GENERATOR)
         .build(move |context| {
             actor::generator::run(context, generator_tx.clone(), state.clone())
-        }, &mut Threading::Spawn);
+        }, &mut Threading::Join(&mut team));
 
+    team.spawn();//this is used to lets multiple actors share the same "core" by putting them on the same team.
+    
     let state = new_state();
     actor_builder.with_name(NAME_WORKER)
         .build(move |context| {
