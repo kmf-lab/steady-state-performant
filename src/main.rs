@@ -73,6 +73,8 @@ fn build_graph(graph: &mut Graph) {
         }, &mut Threading::Spawn);
 }
 
+// TODO: show some core optimizations.
+
 #[cfg(test)]
 pub(crate) mod main_tests {
     use steady_state::*;
@@ -83,10 +85,7 @@ pub(crate) mod main_tests {
     #[test]
     fn graph_test() -> Result<(), Box<dyn Error>> {
 
-        let mut graph = GraphBuilder::for_testing().build(MainArg {
-            rate_ms: 10,  // Fast heartbeat for performance testing
-            beats: 100,   // More beats to test sustained performance
-        });
+        let mut graph = GraphBuilder::for_testing().build(MainArg::default());
 
         build_graph(&mut graph);
         graph.start();

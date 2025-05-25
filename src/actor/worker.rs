@@ -65,12 +65,12 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C
 
     while cmd.is_running(|| i!(heartbeat.is_closed_and_empty()) && i!(generator.is_closed_and_empty()) && i!(logger.mark_closed())) {
         // Wait for heartbeat signal and data availability
-        await_for_all!(cmd.wait_avail(&mut heartbeat, 1),
+        await_for_all!(cmd.wait_avail(&mut heartbeat, 1),  //TODO: no way fast enough...
                        cmd.wait_avail(&mut generator, 1));
 
         // Process heartbeat signals in batches
         while !cmd.is_empty(&mut heartbeat) {
-            if let Some(_h) = cmd.try_take(&mut heartbeat) {
+            if let Some(_h) = cmd.try_take(&mut heartbeat) {  //TODO: should not make use of this..
                 state.heartbeats_processed += 1;
 
                 // Process all available generator data in large batches
