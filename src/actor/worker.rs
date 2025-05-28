@@ -52,7 +52,7 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C
         heartbeats_processed: 0,
         values_processed: 0,
         messages_sent: 0,
-        batch_size: 256, // The correct batch size
+        batch_size: 1024*32, 
     }).await;
 
     let mut heartbeat = heartbeat.lock().await;
@@ -60,71 +60,49 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C
     let mut logger = logger.lock().await;
 
     // Pre-allocate buffers for batch processing - this was correct!
-    let mut heartbeat_batch = vec![0u64; 64];
     let mut generator_batch = vec![0u64; state.batch_size];
     let mut fizzbuzz_batch = Vec::with_capacity(state.batch_size);
 
     while cmd.is_running(|| i!(heartbeat.is_closed_and_empty()) && i!(generator.is_closed_and_empty()) && i!(logger.mark_closed())) {
 
-        // This await_for pattern was CORRECT - using avail/vacant with 256!
-        await_for_all_or_proceed_upon!(
-            cmd.wait_periodic(Duration::from_millis(20)),
-            cmd.wait_avail(&mut heartbeat, 1),
-            cmd.wait_avail(&mut generator, 256),    // Wait for substantial generator data
-            cmd.wait_vacant(&mut logger, 256)       // Ensure we can send processed results
-        );
+         let is_clean = await_for_all_or_proceed_upon!(
+             cmd.wait_periodic(Duration::from_millis(10)),
+             cmd.wait_avail(&mut heartbeat, 1),
+             cmd.wait_avail(&mut generator, state.batch_size),    // Wait for substantial generator data
+             cmd.wait_vacant(&mut logger, state.batch_size)       // Ensure we can send processed results
+         );
 
-        // Batch process heartbeats - this logic was correct!
-        let available_heartbeats = cmd.avail_units(&mut heartbeat);
-        if available_heartbeats > 0 {
-            let heartbeat_batch_size = available_heartbeats.min(heartbeat_batch.len());
-            let heartbeats_taken = cmd.take_slice(&mut heartbeat, &mut heartbeat_batch[..heartbeat_batch_size]);
-
-            state.heartbeats_processed += heartbeats_taken as u64;
+        if cmd.try_take(&mut heartbeat).is_some() || !is_clean {
+            state.heartbeats_processed += 1;
 
             // Process ALL available generator data efficiently
-            loop {
-                let available = cmd.avail_units(&mut generator);
-                if available == 0 {
-                    break;
-                }
-
+            let available = cmd.avail_units(&mut generator).min(cmd.vacant_units(&mut logger));
+            if available > 0 {
                 let batch_size = available.min(state.batch_size);
                 let taken = cmd.take_slice(&mut generator, &mut generator_batch[..batch_size]);
+                if taken > 0 {
+                    // Convert to FizzBuzz messages efficiently
+                    fizzbuzz_batch.clear();
+                    fizzbuzz_batch.reserve(taken);
+                    for &value in &generator_batch[..taken] {
+                        fizzbuzz_batch.push(FizzBuzzMessage::new(value));
+                    }
 
-                if taken == 0 {
-                    break;
-                }
-
-                // Convert to FizzBuzz messages efficiently
-                fizzbuzz_batch.clear();
-                fizzbuzz_batch.reserve(taken);
-                for &value in &generator_batch[..taken] {
-                    fizzbuzz_batch.push(FizzBuzzMessage::new(value));
-                }
-
-                // Send batch efficiently using send_slice_until_full
-                let sent_count = cmd.send_slice_until_full(&mut logger, &fizzbuzz_batch);
-                state.values_processed += taken as u64;
-                state.messages_sent += sent_count as u64;
-
-                // Handle backpressure if needed
-                if sent_count < fizzbuzz_batch.len() {
-                    // Wait for room and send remaining
-                    let remaining = &fizzbuzz_batch[sent_count..];
-                    await_for_all!(cmd.wait_vacant(&mut logger, remaining.len()));
-                    let final_sent = cmd.send_slice_until_full(&mut logger, remaining);
-                    state.messages_sent += final_sent as u64;
-                }
-
-                // Performance logging
-                if state.values_processed % 1000 == 0 {
-                    trace!("Worker processed {} values, sent {} messages", 
-                           state.values_processed, state.messages_sent);
-                }
+                    // Send batch efficiently using send_slice_until_full
+                    let sent_count = cmd.send_slice_until_full(&mut logger, &fizzbuzz_batch);
+                    state.values_processed += taken as u64;
+                    state.messages_sent += sent_count as u64;
+                    assert_eq!(sent_count,fizzbuzz_batch.len(),"expected to match since pre-checked");
+                    
+                    // Performance logging
+                    if state.values_processed % 1000 == 0 {
+                        trace!("Worker processed {} values, sent {} messages",
+                               state.values_processed, state.messages_sent);
+                    }
+                } 
             }
 
-            if state.heartbeats_processed % 10 == 0 {
+            if state.heartbeats_processed % 1_000 == 0 {
                 trace!("Worker: {} heartbeats processed", state.heartbeats_processed);
             }
         }
@@ -171,7 +149,7 @@ pub(crate) mod worker_tests {
 
         sleep(Duration::from_millis(200));
 
-        graph.request_stop();
+        graph.request_shutdown();
         graph.block_until_stopped(Duration::from_secs(1))?;
 
         let results: Vec<FizzBuzzMessage> = logger_rx.testing_take_all();

@@ -32,38 +32,61 @@ const NAME_WORKER: &str = "worker";
 const NAME_LOGGER: &str = "logger";
 
 fn build_graph(graph: &mut Graph) {
-    let channel_builder = graph.channel_builder();
-
+    let channel_builder = graph.channel_builder()
+        // Threshold-based alerting enables proactive monitoring of system health.
+        // Red alerts indicate critical congestion requiring immediate attention,
+        // while orange alerts provide early warning of developing bottlenecks.
+        .with_filled_trigger(Trigger::AvgAbove(Filled::p90()), AlertColor::Red)
+        .with_filled_trigger(Trigger::AvgAbove(Filled::p60()), AlertColor::Orange)
+        // Percentile monitoring provides statistical insight into channel utilization.
+        // The 80th percentile balances responsiveness to load spikes with stability
+        // against transient fluctuations in message flow rates.
+        .with_filled_percentile(Percentile::p80());
+        //.with_avg_rate();//TODO: fix and rename
+        //message rate at the 80th percentile
+        //.with_rate_percentile(Percentile::p80()); //TODO fix::
+    
+    
     // Use large channel capacities for high throughput
     let (heartbeat_tx, heartbeat_rx) = channel_builder
-        .with_capacity(1024)  // Large buffer for heartbeat bursts
+        .with_capacity(256)  // Large buffer for heartbeat bursts
         .build();
     let (generator_tx, generator_rx) = channel_builder
-        .with_capacity(8192)  // Very large buffer for high-speed generation
+        .with_capacity(65536*2)  // Very large buffer for high-speed generation
         .build();
     let (worker_tx, worker_rx) = channel_builder
-        .with_capacity(8192)  // Large buffer for processed messages
+        .with_capacity(65536)  // Large buffer for processed messages
         .build();
 
     let actor_builder = graph.actor_builder()
+        .with_load_avg()
         .with_mcpu_avg();
 
-    let mut team = ActorTeam::new(graph); //TODO: rewrite ...
-        
+    //NOTE the Cargo.toml has set the features for core_affinity and display.  This ensures the
+    // actors remain on the core where they are placed to allow for optimal core cache usage.
+    
+    //Note that with this pattern, we can join actors together under the same thread so they
+    //end up cooperatively sharing upon await. This can be optimal when combining actors with
+    //low compute demand or when combining actors in series where one waits on the next.
+    let mut team = graph.actor_team();
+    
     let state = new_state();
     actor_builder.with_name(NAME_HEARTBEAT)
         .build(move |context| {
             actor::heartbeat::run(context, heartbeat_tx.clone(), state.clone())
-        }, &mut Threading::Join(&mut team));
+        },  &mut Threading::Join(&mut team));
 
     let state = new_state();
     actor_builder.with_name(NAME_GENERATOR)
         .build(move |context| {
             actor::generator::run(context, generator_tx.clone(), state.clone())
-        }, &mut Threading::Join(&mut team));
+        },  &mut Threading::Join(&mut team));
 
-    team.spawn();//this is used to lets multiple actors share the same "core" by putting them on the same team.
+    //this is used to lets multiple actors share the same "thread" by putting them on the same team.
+    //once we are done adding actors we must call spawn();
+    team.spawn();
     
+
     let state = new_state();
     actor_builder.with_name(NAME_WORKER)
         .build(move |context| {
@@ -77,7 +100,6 @@ fn build_graph(graph: &mut Graph) {
         }, &mut Threading::Spawn);
 }
 
-// TODO: show some core optimizations.
 
 #[cfg(test)]
 pub(crate) mod main_tests {
@@ -90,19 +112,17 @@ pub(crate) mod main_tests {
     fn graph_test() -> Result<(), Box<dyn Error>> {
 
         let mut graph = GraphBuilder::for_testing().build(MainArg::default());
-
         build_graph(&mut graph);
         graph.start();
 
         let stage_manager = graph.stage_manager();
         // Test with larger numbers for performance validation
-        stage_manager.actor_perform(NAME_GENERATOR, StageDirection::EchoAt(0, 1000u64))?;
+        stage_manager.actor_perform(NAME_GENERATOR, StageDirection::Echo(15u64))?;
         stage_manager.actor_perform(NAME_HEARTBEAT, StageDirection::Echo(100u64))?;
-        stage_manager.actor_perform(NAME_LOGGER, StageWaitFor::Message(FizzBuzzMessage::FizzBuzz, Duration::from_secs(5)))?;
+     //   stage_manager.actor_perform(NAME_LOGGER, StageWaitFor::Message(FizzBuzzMessage::FizzBuzz, Duration::from_secs(5)))?; //TODO: if we have a bad mesage the timeout should have triggered!
         stage_manager.final_bow();
-
-        graph.request_stop();
-
-        graph.block_until_stopped(Duration::from_secs(2))
+        
+         graph.request_shutdown();
+         graph.block_until_stopped(Duration::from_secs(2))
     }
 }

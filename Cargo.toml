@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 #steady_state     = "0.1.4"
-steady_state     = { path = "../steady-state-stack/core", features = ["exec_async_std", "telemetry_server_builtin"], default-features = false }
+steady_state     = { path = "../steady-state-stack/core", features = ["exec_async_std", "telemetry_server_builtin", "prometheus_metrics", "core_affinity", "core_display"], default-features = false }
 
-clap             = { version = "4.5.36", features = ["derive"] }
+clap             = { version = "4.5.39", features = ["derive"] }
 
 

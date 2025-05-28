@@ -1,13 +1,15 @@
 use steady_state::*;
 
-/// High-performance heartbeat with batched operations
+/// Persistent counter state that survives actor restarts.
+/// Heartbeat actors often need to maintain timing consistency across failures,
+/// making persistent state essential for reliable scheduling.
 pub(crate) struct HeartbeatState {
-    pub(crate) count: u64,
-    pub(crate) beats_sent: u64,
-    pub(crate) burst_size: usize, // Send heartbeats in bursts for efficiency
+    pub(crate) count: u64
 }
 
-/// this is the normal entry point for our actor in the graph using its normal implementation
+/// Entry point demonstrating command-line argument integration.
+/// Heartbeat actors commonly need runtime configuration for timing parameters,
+/// deployment flexibility, and operational tuning.
 pub async fn run(context: SteadyContext, heartbeat_tx: SteadyTx<u64>, state: SteadyState<HeartbeatState>) -> Result<(),Box<dyn Error>> {
     let cmd = context.into_monitor([], [&heartbeat_tx]);
     if cmd.use_internal_behavior {
@@ -17,80 +19,56 @@ pub async fn run(context: SteadyContext, heartbeat_tx: SteadyTx<u64>, state: Ste
     }
 }
 
+/// Periodic signal generation with coordinated shutdown capabilities.
+/// This pattern enables time-based coordination across multiple actors
+/// while maintaining precise timing control and graceful termination.
 async fn internal_behavior<C: SteadyCommander>(mut cmd: C
                                                , heartbeat_tx: SteadyTx<u64>
                                                , state: SteadyState<HeartbeatState> ) -> Result<(),Box<dyn Error>> {
+    // Runtime argument access allows dynamic behavior configuration.
+    // This enables the same actor code to work across different deployment scenarios
+    // without recompilation or environment-specific builds.
     let args = cmd.args::<crate::MainArg>().expect("unable to downcast");
     let rate = Duration::from_millis(args.rate_ms);
     let beats = args.beats;
 
-    let mut state = state.lock(|| HeartbeatState{
-        count: 0,
-        beats_sent: 0,
-        burst_size: 32, // Send heartbeats in bursts of 32
-    }).await;
-
+    let mut state = state.lock(|| HeartbeatState{ count: 0}).await;
     let mut heartbeat_tx = heartbeat_tx.lock().await;
 
-    // Pre-allocate burst buffer
-    let mut burst = Vec::with_capacity(state.burst_size);
-
-    //loop is_running until shutdown signal then we call the closure which closes our outgoing Tx
-    while cmd.is_running(|| i!(heartbeat_tx.mark_closed())) {
-        //await here until periodic time and room for burst
+    // Shutdown coordination with proper channel cleanup signaling.
+    while cmd.is_running(|| heartbeat_tx.mark_closed()) {
+        // Synchronized waiting demonstrates multi-condition coordination.
+        // await_for_all! ensures both timing requirements and channel capacity
+        // are satisfied before proceeding, preventing timing drift and overflow.
         await_for_all!(cmd.wait_periodic(rate),
-                       cmd.wait_vacant(&mut heartbeat_tx, state.burst_size));
+                       cmd.wait_vacant(&mut heartbeat_tx, 1));
 
-        // Prepare burst of heartbeat values
-        burst.clear();
-        for _ in 0..state.burst_size.min((beats - state.count) as usize) {
-            if state.count >= beats {
-                break;
-            }
-            burst.push(state.count);
-            state.count += 1;
-        }
+        let _ = cmd.try_send(&mut heartbeat_tx, state.count);
 
-        if !burst.is_empty() {
-            // Send entire burst at once
-            let sent_count = cmd.send_slice_until_full(&mut heartbeat_tx, &burst);
-            state.beats_sent += sent_count as u64;
-
-            // Adjust count if not all messages were sent
-            if sent_count < burst.len() {
-                state.count -= (burst.len() - sent_count) as u64;
-            }
-
-            trace!("Heartbeat burst: sent {} beats, total: {}", sent_count, state.beats_sent);
-        }
-
-        if state.count >= beats {
-            info!("Heartbeat completed {} beats, requesting graph stop", beats);
-            cmd.request_graph_stop().await;
+        state.count += 1;
+        // Self-terminating behavior allows actors to control application lifecycle.
+        // This pattern is useful for batch jobs, scheduled tasks, or demo applications
+        // that need to terminate after completing their work.
+        if beats == state.count {
+            cmd.request_shutdown().await;
         }
     }
-
-    info!("Heartbeat shutting down. Total beats sent: {}", state.beats_sent);
     Ok(())
 }
 
-/// Here we test the internal behavior of this actor
+/// Testing with timing validation demonstrates how to verify periodic behavior.
+/// This pattern ensures heartbeat actors maintain correct timing characteristics
+/// under various load and configuration conditions.
 #[cfg(test)]
 pub(crate) mod heartbeat_tests {
-    pub use std::thread::sleep;
     use steady_state::*;
     use crate::arg::MainArg;
     use super::*;
 
     #[test]
     fn test_heartbeat() -> Result<(), Box<dyn Error>> {
-        let mut graph = GraphBuilder::for_testing().build(MainArg {
-            rate_ms: 10,
-            beats: 100,
-        });
-        let (heartbeat_tx, heartbeat_rx) = graph.channel_builder()
-            .with_capacity(512)
-            .build();
+        let mut graph = GraphBuilder::for_testing().build(MainArg::default());
+        let (heartbeat_tx, heartbeat_rx) = graph.channel_builder().build();
 
         let state = new_state();
         graph.actor_builder()
@@ -100,13 +78,12 @@ pub(crate) mod heartbeat_tests {
             );
 
         graph.start();
-        sleep(Duration::from_millis(500));
-        graph.request_stop();
+        // Timing-based testing requires careful coordination between test duration
+        // and expected actor behavior to ensure deterministic results.
+        std::thread::sleep(Duration::from_millis(1000 * 3));
+        graph.request_shutdown();
         graph.block_until_stopped(Duration::from_secs(1))?;
-
-        let beats: Vec<u64> = heartbeat_rx.testing_take_all();
-        assert!(!beats.is_empty());
-        assert_eq!(beats[0], 0);
+        assert_steady_rx_eq_take!(&heartbeat_rx, vec!(0,1));
         Ok(())
     }
 }

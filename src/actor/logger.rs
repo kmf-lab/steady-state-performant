@@ -23,7 +23,7 @@ pub async fn run(context: SteadyContext, fizz_buzz_rx: SteadyRx<FizzBuzzMessage>
 async fn internal_behavior<C: SteadyCommander>(mut cmd: C, rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
     let mut state = state.lock(|| LoggerState {
         messages_logged: 0,
-        batch_size: 1024, // Large batch processing for maximum throughput
+        batch_size: 1024*32, // Large batch processing for maximum throughput
         fizz_count: 0,
         buzz_count: 0,
         fizzbuzz_count: 0,
@@ -36,49 +36,45 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C, rx: SteadyRx<FizzBuzz
     let mut batch = vec![FizzBuzzMessage::default(); state.batch_size];
 
     while cmd.is_running(|| i!(rx.is_closed_and_empty())) {
-        await_for_all!(cmd.wait_avail(&mut rx, 1));
+        await_for_all_or_proceed_upon!(cmd.wait_periodic(Duration::from_millis(40)),
+                                       cmd.wait_avail(&mut rx, state.batch_size));
 
         // Process messages in large batches for maximum throughput
-        loop {
-            let available = cmd.avail_units(&mut rx);
-            if available == 0 {
-                break;
-            }
-
+        let available = cmd.avail_units(&mut rx);
+        if available > 0 {
             let batch_size = available.min(state.batch_size);
             let taken = cmd.take_slice(&mut rx, &mut batch[..batch_size]);
 
-            if taken == 0 {
-                break;
-            }
+            if taken > 0 {
+                // Process entire batch efficiently
+                for &msg in &batch[..taken] {
+                    match msg {
+                        FizzBuzzMessage::Fizz => {
+                            state.fizz_count += 1;
+                        }
+                        FizzBuzzMessage::Buzz => {
+                            state.buzz_count += 1;
+                        }
+                        FizzBuzzMessage::FizzBuzz => {
+                            state.fizzbuzz_count += 1;
+                        }
+                        FizzBuzzMessage::Value(_) => {
+                            state.value_count += 1;
+                        }
+                    }
 
-            // Process entire batch efficiently
-            for &msg in &batch[..taken] {
-                match msg {
-                    FizzBuzzMessage::Fizz => {
-                        state.fizz_count += 1;
-                    }
-                    FizzBuzzMessage::Buzz => {
-                        state.buzz_count += 1;
-                    }
-                    FizzBuzzMessage::FizzBuzz => {
-                        state.fizzbuzz_count += 1;
-                    }
-                    FizzBuzzMessage::Value(_) => {
-                        state.value_count += 1;
+
+                    state.messages_logged += 1;
+
+                    // Log performance metrics periodically
+                    if state.messages_logged % 10_000_000 == 0 {
+                        info!("Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
+                              state.messages_logged, state.fizz_count, state.buzz_count,
+                              state.fizzbuzz_count, state.value_count);
+                    } else if state.messages_logged % 1_000_000 == 0 {
+                        trace!("Logger: {} messages processed", state.messages_logged);
                     }
                 }
-            }
-
-            state.messages_logged += taken as u64;
-
-            // Log performance metrics periodically
-            if state.messages_logged % 10000 == 0 {
-                info!("Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
-                      state.messages_logged, state.fizz_count, state.buzz_count,
-                      state.fizzbuzz_count, state.value_count);
-            } else if state.messages_logged % 1000 == 0 {
-                trace!("Logger: {} messages processed", state.messages_logged);
             }
         }
     }
@@ -115,7 +111,7 @@ fn test_logger() -> Result<(), Box<dyn std::error::Error>> {
     fizz_buzz_tx.testing_send_all(test_messages, true);
 
     sleep(Duration::from_millis(500));
-    graph.request_stop();
+    graph.request_shutdown();
     graph.block_until_stopped(Duration::from_secs(1))?;
 
     // Should see batch processing logs

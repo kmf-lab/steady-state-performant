@@ -78,7 +78,7 @@ pub(crate) mod generator_tests {
 
         graph.start();
         sleep(Duration::from_millis(100));
-        graph.request_stop();
+        graph.request_shutdown();
 
         graph.block_until_stopped(Duration::from_secs(1))?;
 
