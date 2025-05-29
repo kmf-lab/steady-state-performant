@@ -144,12 +144,3 @@ RUST_LOG=trace cargo run -- --rate 50 --beats 500
 - **Automatic backpressure handling** prevents system overload
 - **Comprehensive performance testing** validates scalability
 
-## 🔧 Performance Tuning
-
-The system automatically adapts batch sizes and buffer allocations based on:
-- **Available memory** and processing capacity
-- **Channel utilization** patterns and bottleneck detection
-- **Core assignment** optimization for actor teams
-- **Throughput feedback** for dynamic batch size adjustment
-
-This performant threading model scales from high-frequency trading systems to large-scale data processing pipelines while maintaining deterministic, race-free behavior across all performance optimizations.

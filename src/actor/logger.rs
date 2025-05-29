@@ -21,16 +21,19 @@ pub async fn run(context: SteadyContext, fizz_buzz_rx: SteadyRx<FizzBuzzMessage>
 }
 
 async fn internal_behavior<C: SteadyCommander>(mut cmd: C, rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
+
+
+    let mut rx = rx.lock().await;
+    
     let mut state = state.lock(|| LoggerState {
         messages_logged: 0,
-        batch_size: 1024*32, // Large batch processing for maximum throughput
+        batch_size: rx.capacity()/4,
         fizz_count: 0,
         buzz_count: 0,
         fizzbuzz_count: 0,
         value_count: 0,
     }).await;
 
-    let mut rx = rx.lock().await;
 
     // Pre-allocate batch buffer for high-performance processing
     let mut batch = vec![FizzBuzzMessage::default(); state.batch_size];
@@ -92,7 +95,7 @@ fn test_logger() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut graph = GraphBuilder::for_testing().build(());
     let (fizz_buzz_tx, fizz_buzz_rx) = graph.channel_builder()
-        .with_capacity(2048) // Large capacity for performance
+        .with_capacity(4096) // Large capacity for performance
         .build();
 
     let state = new_state();

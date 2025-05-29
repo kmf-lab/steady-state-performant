@@ -34,12 +34,8 @@ pub async fn run(context: SteadyContext
                  , generator: SteadyRx<u64>
                  , logger: SteadyTx<FizzBuzzMessage>
                  , state: SteadyState<WorkerState>) -> Result<(),Box<dyn Error>> {
-    let cmd = context.into_monitor([&heartbeat, &generator], [&logger]);
-    if cmd.use_internal_behavior {
-        internal_behavior(cmd, heartbeat, generator, logger, state).await
-    } else {
-        cmd.simulated_behavior(vec!(&logger)).await
-    }
+    //this is NOT on the edge of the graph so we do not want to simulate it as it will be tested by its simulated neighbors
+    internal_behavior(context.into_monitor([&heartbeat, &generator], [&logger]), heartbeat, generator, logger, state).await
 }
 
 async fn internal_behavior<C: SteadyCommander>(mut cmd: C
@@ -48,16 +44,18 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C
                                                , logger: SteadyTx<FizzBuzzMessage>
                                                , state: SteadyState<WorkerState>) -> Result<(),Box<dyn Error>> {
 
-    let mut state = state.lock(|| WorkerState {
-        heartbeats_processed: 0,
-        values_processed: 0,
-        messages_sent: 0,
-        batch_size: 1024*32, 
-    }).await;
 
     let mut heartbeat = heartbeat.lock().await;
     let mut generator = generator.lock().await;
     let mut logger = logger.lock().await;
+    
+    let mut state = state.lock(|| WorkerState {
+        heartbeats_processed: 0,
+        values_processed: 0,
+        messages_sent: 0,
+        batch_size: generator.capacity()/4, 
+    }).await;
+
 
     // Pre-allocate buffers for batch processing - this was correct!
     let mut generator_batch = vec![0u64; state.batch_size];
@@ -95,7 +93,7 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C
                     assert_eq!(sent_count,fizzbuzz_batch.len(),"expected to match since pre-checked");
                     
                     // Performance logging
-                    if state.values_processed % 1000 == 0 {
+                    if state.values_processed % 10_000 == 0 {
                         trace!("Worker processed {} values, sent {} messages",
                                state.values_processed, state.messages_sent);
                     }
