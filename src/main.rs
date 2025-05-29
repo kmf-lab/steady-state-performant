@@ -49,7 +49,7 @@ fn build_graph(graph: &mut Graph) {
     
     // Use large channel capacities for high throughput
     let (heartbeat_tx, heartbeat_rx) = channel_builder
-        .with_capacity(256)  // Large buffer for heartbeat bursts
+        .with_capacity(1024)  // Large buffer for heartbeat bursts
         .build();
     let (generator_tx, generator_rx) = channel_builder
         .with_capacity(65536*4)  // Very large buffer for high-speed generation
