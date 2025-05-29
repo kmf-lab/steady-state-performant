@@ -38,7 +38,7 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C, rx: SteadyRx<FizzBuzz
     // Pre-allocate batch buffer for high-performance processing
     let mut batch = vec![FizzBuzzMessage::default(); state.batch_size];
 
-    while cmd.is_running(|| i!(rx.is_closed_and_empty())) {
+    while cmd.is_running(|| rx.is_closed_and_empty()) {
         await_for_all_or_proceed_upon!(cmd.wait_periodic(Duration::from_millis(40)),
                                        cmd.wait_avail(&mut rx, state.batch_size));
 
@@ -69,13 +69,23 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C, rx: SteadyRx<FizzBuzz
 
                     state.messages_logged += 1;
 
-                    // Log performance metrics periodically
-                    if state.messages_logged % 10_000_000 == 0 {
-                        info!("Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
-                              state.messages_logged, state.fizz_count, state.buzz_count,
-                              state.fizzbuzz_count, state.value_count);
-                    } else if state.messages_logged % 1_000_000 == 0 {
-                        trace!("Logger: {} messages processed", state.messages_logged);
+                    const TEN_MILLION_POWER2: u64 = 16_777_216; // 2^24
+                    const ONE_MILLION_POWER2: u64 = 1_048_576;  // 2^20
+
+                    if state.messages_logged<16 || (state.messages_logged & (TEN_MILLION_POWER2 - 1)) == 0 {
+                        info!(
+                            "Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
+                            state.messages_logged,
+                            state.fizz_count,
+                            state.buzz_count,
+                            state.fizzbuzz_count,
+                            state.value_count
+                        );
+                                        } else if (state.messages_logged & (ONE_MILLION_POWER2 - 1)) == 0 {
+                                            trace!(
+                            "Logger: {} messages processed",
+                            state.messages_logged
+                        );
                     }
                 }
             }
@@ -103,7 +113,7 @@ fn test_logger() -> Result<(), Box<dyn std::error::Error>> {
         .build(move |context| {
             internal_behavior(context, fizz_buzz_rx.clone(), state.clone())
         }
-               , &mut Threading::Spawn);
+               , Threading::Spawn);
 
     graph.start();
 

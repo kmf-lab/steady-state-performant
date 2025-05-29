@@ -11,16 +11,22 @@ pub(crate) enum FizzBuzzMessage {
     Value(u64),
 }
 
+
 impl FizzBuzzMessage {
     pub fn new(value: u64) -> Self {
-        match (value % 3, value % 5) {
-            (0, 0) => FizzBuzzMessage::FizzBuzz,
-            (0, _) => FizzBuzzMessage::Fizz,
-            (_, 0) => FizzBuzzMessage::Buzz,
-            _      => FizzBuzzMessage::Value(value),
+        match value % 15 {
+            0  => FizzBuzzMessage::FizzBuzz, // divisible by both 3 and 5
+            3  => FizzBuzzMessage::Fizz,     // divisible by 3
+            5  => FizzBuzzMessage::Buzz,     // divisible by 5
+            6  => FizzBuzzMessage::Fizz,     // divisible by 3
+            9  => FizzBuzzMessage::Fizz,     // divisible by 3
+            10 => FizzBuzzMessage::Buzz,     // divisible by 5
+            12 => FizzBuzzMessage::Fizz,     // divisible by 3
+            _  => FizzBuzzMessage::Value(value), // 1,2,4,7,8,11,13,14
         }
     }
 }
+
 
 pub(crate) struct WorkerState {
     pub(crate) heartbeats_processed: u64,
@@ -137,7 +143,7 @@ pub(crate) mod worker_tests {
                                                     , generate_rx.clone()
                                                     , logger_tx.clone()
                                                     , state.clone())
-                   , &mut Threading::Spawn
+                   , Threading::Spawn
             );
 
         let values: Vec<u64> = (0..1000).collect();

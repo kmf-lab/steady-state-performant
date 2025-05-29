@@ -52,10 +52,10 @@ fn build_graph(graph: &mut Graph) {
         .with_capacity(1024)  // Large buffer for heartbeat bursts
         .build();
     let (generator_tx, generator_rx) = channel_builder
-        .with_capacity(65536*4)  // Very large buffer for high-speed generation
+        .with_capacity(1<<18)  // Very large buffer for high-speed generation
         .build();
     let (worker_tx, worker_rx) = channel_builder
-        .with_capacity(65536*2)  // Large buffer for processed messages
+        .with_capacity(1<<17)  // Large buffer for processed messages
         .build();
 
     let actor_builder = graph.actor_builder()
@@ -75,30 +75,31 @@ fn build_graph(graph: &mut Graph) {
     actor_builder.with_name(NAME_HEARTBEAT)
         .build(move |context| {
             actor::heartbeat::run(context, heartbeat_tx.clone(), state.clone())
-        },  &mut Threading::Join(&mut team));
+        },  Threading::Join(&mut team));
 
     let state = new_state();
     actor_builder.with_name(NAME_GENERATOR)
         .build(move |context| {
             actor::generator::run(context, generator_tx.clone(), state.clone())
-        },  &mut Threading::Join(&mut team));
+        },  Threading::Join(&mut team));
 
     //this is used to lets multiple actors share the same "thread" by putting them on the same team.
     //once we are done adding actors we must call spawn();
-    team.spawn();
+    team.spawn();// TODO: we need to span auto out of scope?
+    /// TODO: Trheading must be  Troup or individual not spawna nd join
     
 
     let state = new_state();
     actor_builder.with_name(NAME_WORKER)
         .build(move |context| {
             actor::worker::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())
-        }, &mut Threading::Spawn);
+        }, Threading::Spawn);
 
     let state = new_state();
     actor_builder.with_name(NAME_LOGGER)
         .build(move |context| {
             actor::logger::run(context, worker_rx.clone(), state.clone())
-        }, &mut Threading::Spawn);
+        }, Threading::Spawn);
 }
 
 
@@ -113,7 +114,7 @@ pub(crate) mod main_tests {
     fn graph_test() -> Result<(), Box<dyn Error>> {
 
         let mut graph = GraphBuilder::for_testing()
-            .build(MainArg::default());
+                      .build(MainArg::default());
 
         build_graph(&mut graph);
         graph.start();
@@ -122,17 +123,16 @@ pub(crate) mod main_tests {
         // This enables precise control over actor behavior and verification of
         // complex system interactions without manual coordination complexity.
         let stage_manager = graph.stage_manager();
-     
-        //   stage_manager.actor_perform(NAME_GENERATOR, StageDirection::Echo(15u64))?;
-       // stage_manager.actor_perform(NAME_HEARTBEAT, StageDirection::Echo(100u64))?;
-       // stage_manager.actor_perform(NAME_LOGGER,    StageWaitFor::Message(FizzBuzzMessage::FizzBuzz
-          //                                                                , Duration::from_secs(2)))?;
+        stage_manager.actor_perform(NAME_GENERATOR, StageDirection::Echo(15u64))?;
+        stage_manager.actor_perform(NAME_HEARTBEAT, StageDirection::Echo(100u64))?;
+        stage_manager.actor_perform(NAME_LOGGER,    StageWaitFor::Message(FizzBuzzMessage::FizzBuzz
+                                                                          , Duration::from_secs(2)))?;
         
-         stage_manager.final_bow();
+        stage_manager.final_bow();
         // 
-         graph.request_shutdown();
+        graph.request_shutdown();
          
-         graph.block_until_stopped(Duration::from_secs(5))
-      // Ok(())
+        graph.block_until_stopped(Duration::from_secs(5))
+
     }
 }
