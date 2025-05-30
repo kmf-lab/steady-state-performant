@@ -143,7 +143,7 @@ pub(crate) mod worker_tests {
                                                     , generate_rx.clone()
                                                     , logger_tx.clone()
                                                     , state.clone())
-                   , Threading::Spawn
+                   , SoloAct
             );
 
         let values: Vec<u64> = (0..1000).collect();

@@ -67,20 +67,23 @@ pub(crate) mod heartbeat_tests {
 
     #[test]
     fn test_heartbeat() -> Result<(), Box<dyn Error>> {
-        let mut graph = GraphBuilder::for_testing().build(MainArg::default());
+        let mut graph = GraphBuilder::for_testing().build(MainArg {
+            rate_ms: 100, //custom so we can match our test below
+            beats: 10,
+        });
         let (heartbeat_tx, heartbeat_rx) = graph.channel_builder().build();
 
         let state = new_state();
         graph.actor_builder()
             .with_name("UnitTest")
-            .build_spawn(move |context|
+            .build(move |context|
                 internal_behavior(context, heartbeat_tx.clone(), state.clone())
-            );
+            , SoloAct );
 
         graph.start();
         // Timing-based testing requires careful coordination between test duration
         // and expected actor behavior to ensure deterministic results.
-        std::thread::sleep(Duration::from_millis(1000 * 3));
+        std::thread::sleep(Duration::from_millis(100 * 3));
         graph.request_shutdown();
         graph.block_until_stopped(Duration::from_secs(1))?;
         assert_steady_rx_eq_take!(&heartbeat_rx, vec!(0,1));

@@ -113,7 +113,7 @@ fn test_logger() -> Result<(), Box<dyn std::error::Error>> {
         .build(move |context| {
             internal_behavior(context, fizz_buzz_rx.clone(), state.clone())
         }
-               , Threading::Spawn);
+               , SoloAct);
 
     graph.start();
 
