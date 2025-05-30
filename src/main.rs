@@ -51,11 +51,11 @@ fn build_graph(graph: &mut Graph) {
     let (heartbeat_tx, heartbeat_rx) = channel_builder
         .with_capacity(1024)  // Large buffer for heartbeat bursts
         .build();
-    let (generator_tx, generator_rx) = channel_builder
-        .with_capacity(1<<18)  // Very large buffer for high-speed generation
+    let (generator_tx, generator_rx) = channel_builder // important for high volume throughput
+        .with_capacity(1<<20)  // Very large buffer for high-speed generation
         .build();
-    let (worker_tx, worker_rx) = channel_builder
-        .with_capacity(1<<17)  // Large buffer for processed messages
+    let (worker_tx, worker_rx) = channel_builder // important for high volume throughput
+        .with_capacity(1<<20)  // Large buffer for processed messages
         .build();
 
     let actor_builder = graph.actor_builder()
@@ -117,14 +117,15 @@ pub(crate) mod main_tests {
         // This enables precise control over actor behavior and verification of
         // complex system interactions without manual coordination complexity.
         let stage_manager = graph.stage_manager();
-        stage_manager.actor_perform(NAME_GENERATOR, StageDirection::Echo(15u64))?;
+        stage_manager.actor_perform(NAME_GENERATOR, StageDirection::Echo(15u64))?; //TODO: how does this send closed??
         stage_manager.actor_perform(NAME_HEARTBEAT, StageDirection::Echo(100u64))?;
         stage_manager.actor_perform(NAME_LOGGER,    StageWaitFor::Message(FizzBuzzMessage::FizzBuzz
                                                                           , Duration::from_secs(2)))?;
+
         stage_manager.final_bow();
-        
         graph.request_shutdown();
-         
+
+
         graph.block_until_stopped(Duration::from_secs(5))
 
     }

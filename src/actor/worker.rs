@@ -54,12 +54,13 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C
     let mut heartbeat = heartbeat.lock().await;
     let mut generator = generator.lock().await;
     let mut logger = logger.lock().await;
+    const SLICES:usize = 2; // important for high volume throughput
     
     let mut state = state.lock(|| WorkerState {
         heartbeats_processed: 0,
         values_processed: 0,
         messages_sent: 0,
-        batch_size: generator.capacity()/4, 
+        batch_size: generator.capacity()/SLICES,
     }).await;
 
 
@@ -76,38 +77,45 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C
              cmd.wait_vacant(&mut logger, state.batch_size)       // Ensure we can send processed results
          );
 
-        if cmd.try_take(&mut heartbeat).is_some() || !is_clean {
-            state.heartbeats_processed += 1;
+        let mut slices = SLICES;
+        while slices>0 {
+            slices -= 1;
+            if cmd.try_take(&mut heartbeat).is_some() || !is_clean {
+                state.heartbeats_processed += 1;
 
-            // Process ALL available generator data efficiently
-            let available = cmd.avail_units(&mut generator).min(cmd.vacant_units(&mut logger));
-            if available > 0 {
-                let batch_size = available.min(state.batch_size);
-                let taken = cmd.take_slice(&mut generator, &mut generator_batch[..batch_size]);
-                if taken > 0 {
-                    // Convert to FizzBuzz messages efficiently
-                    fizzbuzz_batch.clear();
-                    fizzbuzz_batch.reserve(taken);
-                    for &value in &generator_batch[..taken] {
-                        fizzbuzz_batch.push(FizzBuzzMessage::new(value));
+                // Process ALL available generator data efficiently
+                let available = cmd.avail_units(&mut generator).min(cmd.vacant_units(&mut logger));
+                if available > 0 {
+                    let batch_size = available.min(state.batch_size);
+                    // important for high volume throughput
+                    let taken = cmd.take_slice(&mut generator, &mut generator_batch[..batch_size]);
+                    if taken > 0 {
+                        // Convert to FizzBuzz messages efficiently
+                        fizzbuzz_batch.clear();
+                        fizzbuzz_batch.reserve(taken);
+                        for &value in &generator_batch[..taken] {
+                            fizzbuzz_batch.push(FizzBuzzMessage::new(value));
+                        }
+
+                        // Send batch efficiently using send_slice_until_full
+                        let sent_count = cmd.send_slice_until_full(&mut logger, &fizzbuzz_batch);
+                        state.values_processed += taken as u64;
+                        state.messages_sent += sent_count as u64;
+                        assert_eq!(sent_count, fizzbuzz_batch.len(), "expected to match since pre-checked");
+
+                        // Performance logging
+                        if state.values_processed % 10_000 == 0 {
+                            trace!("Worker processed {} values, sent {} messages",
+                                   state.values_processed, state.messages_sent);
+                        }
                     }
+                }
 
-                    // Send batch efficiently using send_slice_until_full
-                    let sent_count = cmd.send_slice_until_full(&mut logger, &fizzbuzz_batch);
-                    state.values_processed += taken as u64;
-                    state.messages_sent += sent_count as u64;
-                    assert_eq!(sent_count,fizzbuzz_batch.len(),"expected to match since pre-checked");
-                    
-                    // Performance logging
-                    if state.values_processed % 10_000 == 0 {
-                        trace!("Worker processed {} values, sent {} messages",
-                               state.values_processed, state.messages_sent);
-                    }
-                } 
-            }
-
-            if state.heartbeats_processed % 1_000 == 0 {
-                trace!("Worker: {} heartbeats processed", state.heartbeats_processed);
+                if state.heartbeats_processed % 1_000 == 0 {
+                    trace!("Worker: {} heartbeats processed", state.heartbeats_processed);
+                }
+            } else {
+                break;
             }
         }
     }
