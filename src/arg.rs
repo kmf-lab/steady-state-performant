@@ -15,8 +15,8 @@ pub(crate) struct MainArg {
 impl Default for MainArg {
     fn default() -> Self {
         MainArg {
-            rate_ms: 30000,
-            beats: 2,
+            rate_ms: 2,
+            beats: 30000,
         }
     }
 }
