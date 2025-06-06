@@ -11,16 +11,16 @@ pub(crate) struct LoggerState {
     pub(crate) value_count: u64,
 }
 
-pub async fn run(context: SteadyContext, fizz_buzz_rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
-    let cmd = context.into_monitor([&fizz_buzz_rx], []);
-    if cmd.use_internal_behavior {
-        internal_behavior(cmd, fizz_buzz_rx, state).await
+pub async fn run(actor: SteadyActorShadow, fizz_buzz_rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
+    let actor = actor.into_spotlight([&fizz_buzz_rx], []);
+    if actor.use_internal_behavior {
+        internal_behavior(actor, fizz_buzz_rx, state).await
     } else {
-        cmd.simulated_behavior(vec!(&fizz_buzz_rx)).await
+        actor.simulated_behavior(vec!(&fizz_buzz_rx)).await
     }
 }
 
-async fn internal_behavior<C: SteadyCommander>(mut cmd: C, rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
+async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
 
 
     let mut rx = rx.lock().await;

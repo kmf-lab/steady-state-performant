@@ -6,16 +6,16 @@ pub(crate) struct GeneratorState {
     pub(crate) total_generated: u64,
 }
 
-pub async fn run(context: SteadyContext, generated_tx: SteadyTx<u64>, state: SteadyState<GeneratorState>) -> Result<(),Box<dyn Error>> {
-    let cmd = context.into_monitor([], [&generated_tx]);
-    if cmd.use_internal_behavior {
-        internal_behavior(cmd, generated_tx, state).await
+pub async fn run(actor: SteadyActorShadow, generated_tx: SteadyTx<u64>, state: SteadyState<GeneratorState>) -> Result<(),Box<dyn Error>> {
+    let actor = actor.into_spotlight([], [&generated_tx]);
+    if actor.use_internal_behavior {
+        internal_behavior(actor, generated_tx, state).await
     } else {
-        cmd.simulated_behavior(vec!(&generated_tx)).await
+        actor.simulated_behavior(vec!(&generated_tx)).await
     }
 }
 
-async fn internal_behavior<C: SteadyCommander>(mut cmd: C, generated: SteadyTx<u64>, state: SteadyState<GeneratorState> ) -> Result<(),Box<dyn Error>> {
+async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64>, state: SteadyState<GeneratorState> ) -> Result<(),Box<dyn Error>> {
 
     let mut state = state.lock(|| GeneratorState {
         next_value: 0,
@@ -27,9 +27,9 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C, generated: SteadyTx<u
     // Pre-allocate batch buffer to avoid repeated allocations
     let mut batch = Vec::with_capacity(state.batch_size);
 
-    while cmd.is_running(|| i!(generated.mark_closed())) {
+    while actor.is_running(|| i!(generated.mark_closed())) {
         // Wait for sufficient room in channel for our batch
-        await_for_all!(cmd.wait_vacant(&mut generated, state.batch_size));
+        await_for_all!(actor.wait_vacant(&mut generated, state.batch_size));
 
         // Prepare a full batch of values
         batch.clear();
@@ -39,7 +39,7 @@ async fn internal_behavior<C: SteadyCommander>(mut cmd: C, generated: SteadyTx<u
         }
 
         // Send entire batch at once for maximum throughput
-        let sent_count = cmd.send_slice_until_full(&mut generated, &batch);
+        let sent_count = actor.send_slice_until_full(&mut generated, &batch);
         state.total_generated += sent_count as u64;
 
         if sent_count < batch.len() {

@@ -44,7 +44,7 @@ pub(crate) struct WorkerState {
 /// This actor is not on the edge of the graph, so it is always run with real neighbors.
 /// It receives heartbeats and generator values, processes them in batches, and sends FizzBuzz messages to the logger.
 pub async fn run(
-    context: SteadyContext,
+    actor: SteadyActorShadow,
     heartbeat: SteadyRx<u64>,
     generator: SteadyRx<u64>,
     logger: SteadyTx<FizzBuzzMessage>,
@@ -52,7 +52,7 @@ pub async fn run(
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        context.into_monitor([&heartbeat, &generator], [&logger]),
+        actor.into_spotlight([&heartbeat, &generator], [&logger]),
         heartbeat,
         generator,
         logger,
@@ -69,8 +69,8 @@ pub async fn run(
 /// - **Full-channel consumption**: The worker processes both halves (two slices) before yielding, maximizing cache line reuse and minimizing context switches.
 /// - **Pre-allocated buffers**: All batch buffers are allocated once and reused, ensuring zero-allocation hot paths.
 /// - **Mechanically sympathetic**: The design aligns with CPU cache and memory bus behavior for optimal throughput.
-async fn internal_behavior<C: SteadyCommander>(
-    mut cmd: C,
+async fn internal_behavior<A: SteadyActor>(
+    mut actor: A,
     heartbeat: SteadyRx<u64>,
     generator: SteadyRx<u64>,
     logger: SteadyTx<FizzBuzzMessage>,
@@ -102,7 +102,7 @@ async fn internal_behavior<C: SteadyCommander>(
 
     // Main processing loop.
     // The actor runs until all input channels are closed and empty, and the output channel is closed.
-    while cmd.is_running(||
+    while actor.is_running(||
         i!(heartbeat.is_closed_and_empty()) &&
             i!(generator.is_closed_and_empty()) &&
             i!(logger.mark_closed())
@@ -113,10 +113,10 @@ async fn internal_behavior<C: SteadyCommander>(
         // - At least half a channel's worth of generator data (for batch efficiency)
         // - Sufficient space in the logger channel for a batch
         let is_clean = await_for_all_or_proceed_upon!(
-            cmd.wait_periodic(Duration::from_millis(10)),
-            cmd.wait_avail(&mut heartbeat, 1),
-            cmd.wait_avail(&mut generator, state.batch_size),
-            cmd.wait_vacant(&mut logger, state.batch_size)
+            actor.wait_periodic(Duration::from_millis(10)),
+            actor.wait_avail(&mut heartbeat, 1),
+            actor.wait_avail(&mut generator, state.batch_size),
+            actor.wait_vacant(&mut logger, state.batch_size)
         );
 
         // The double-buffering loop: process two slices (halves) before yielding.
@@ -126,18 +126,18 @@ async fn internal_behavior<C: SteadyCommander>(
 
             // Only proceed if a heartbeat is available or if any awaited condition is ready.
             // This ensures we don't leave data stranded in the channel.
-            if cmd.try_take(&mut heartbeat).is_some() || !is_clean {
+            if actor.try_take(&mut heartbeat).is_some() || !is_clean {
                 state.heartbeats_processed += 1;
 
                 // Determine how many values we can process in this batch.
                 // We never process more than batch_size at a time.
-                let available = cmd.avail_units(&mut generator).min(cmd.vacant_units(&mut logger));
+                let available = actor.avail_units(&mut generator).min(actor.vacant_units(&mut logger));
                 if available > 0 {
                     let batch_size = available.min(state.batch_size);
 
                     // Take a slice of generator values into the pre-allocated buffer.
                     // This is a zero-allocation, cache-friendly operation.
-                    let taken = cmd.take_slice(&mut generator, &mut generator_batch[..batch_size]);
+                    let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]);
                     if taken > 0 {
                         // Convert the batch of values to FizzBuzz messages.
                         // The fizzbuzz_batch buffer is reused every cycle.
@@ -149,7 +149,7 @@ async fn internal_behavior<C: SteadyCommander>(
 
                         // Send the entire batch to the logger in one operation.
                         // This minimizes synchronization and maximizes throughput.
-                        let sent_count = cmd.send_slice_until_full(&mut logger, &fizzbuzz_batch);
+                        let sent_count = actor.send_slice_until_full(&mut logger, &fizzbuzz_batch);
                         state.values_processed += taken as u64;
                         state.messages_sent += sent_count as u64;
                         assert_eq!(sent_count, fizzbuzz_batch.len(), "expected to match since pre-checked");
