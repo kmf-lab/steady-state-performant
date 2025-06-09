@@ -141,6 +141,10 @@ This demonstrates the system processed **over 9.6 billion messages** in about a 
 
 ## 🛠️ Usage
 
+#### Telemetry
+- Telemetry on http://127.0.0.1:9900  (human readable)
+- Telemetry on http://127.0.0.1:9900/graph.dot (graph file)
+
 ```bash
 # Run with default high-speed settings (2ms heartbeat, 30,000 beats)
 cargo run
