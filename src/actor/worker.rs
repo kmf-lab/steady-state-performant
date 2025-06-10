@@ -155,7 +155,7 @@ async fn internal_behavior<A: SteadyActor>(
                         assert_eq!(sent_count, fizzbuzz_batch.len(), "expected to match since pre-checked");
 
                         // Log performance statistics periodically.
-                        if state.values_processed & (1<<14) == 0 {
+                        if state.values_processed & ((1<<14)-1) == 0 {
                             trace!("Worker processed {} values, sent {} messages",
                                    state.values_processed, state.messages_sent);
                         }
@@ -163,7 +163,7 @@ async fn internal_behavior<A: SteadyActor>(
                 }
 
                 // Log heartbeat statistics periodically.
-                if state.heartbeats_processed & (1<<11) == 0 {
+                if state.heartbeats_processed & ((1<<11)-1) == 0 {
                     trace!("Worker: {} heartbeats processed", state.heartbeats_processed);
                 }
             } else {

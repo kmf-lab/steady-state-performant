@@ -27,7 +27,7 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
     
     let mut state = state.lock(|| LoggerState {
         messages_logged: 0,
-        batch_size: rx.capacity()/4,
+        batch_size: rx.capacity()/2,
         fizz_count: 0,
         buzz_count: 0,
         fizzbuzz_count: 0,
@@ -66,13 +66,9 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
                         }
                     }
 
-
                     state.messages_logged += 1;
 
-                    const TEN_MILLION_POWER2: u64 = 16_777_216; // 2^24
-                    const ONE_MILLION_POWER2: u64 = 1_048_576;  // 2^20
-
-                    if state.messages_logged<16 || (state.messages_logged & (TEN_MILLION_POWER2 - 1)) == 0 {
+                    if state.messages_logged<16 || (state.messages_logged & ((1<<26) - 1)) == 0 {
                         info!(
                             "Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
                             state.messages_logged,
@@ -81,7 +77,7 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
                             state.fizzbuzz_count,
                             state.value_count
                         );
-                                        } else if (state.messages_logged & (ONE_MILLION_POWER2 - 1)) == 0 {
+                    } else if (state.messages_logged & ((1<<22) - 1)) == 0 {
                                             trace!(
                             "Logger: {} messages processed",
                             state.messages_logged
