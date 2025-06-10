@@ -51,9 +51,7 @@ fn build_graph(graph: &mut Graph) {
         .with_filled_trigger(Trigger::AvgAbove(Filled::p60()), AlertColor::Orange)
         // Track average message rate for each channel
         .with_avg_rate()
-        // Track the 80th percentile fill level for each channel
-        .with_filled_percentile(Percentile::p80());
-    // .with_rate_percentile(Percentile::p80()); // (optional, for future use)
+        .with_avg_filled();
 
     // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
     // - Heartbeat channel: moderate size for timing signals

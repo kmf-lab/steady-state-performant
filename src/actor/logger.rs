@@ -49,7 +49,7 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
             let taken = cmd.take_slice(&mut rx, &mut batch[..batch_size]);
 
             if taken > 0 {
-                // Process entire batch efficiently
+                // Process the entire batch efficiently
                 for &msg in &batch[..taken] {
                     match msg {
                         FizzBuzzMessage::Fizz => {
