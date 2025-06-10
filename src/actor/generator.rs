@@ -17,12 +17,14 @@ pub async fn run(actor: SteadyActorShadow, generated_tx: SteadyTx<u64>, state: S
 
 async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64>, state: SteadyState<GeneratorState> ) -> Result<(),Box<dyn Error>> {
 
+    let mut generated = generated.lock().await;
+
     let mut state = state.lock(|| GeneratorState {
         next_value: 0,
-        batch_size: 256, // Large batch size for high throughput
+        batch_size: generated.capacity()/2, // Large batch size for high throughput
         total_generated: 0,
     }).await;
-    let mut generated = generated.lock().await;
+
 
     // Pre-allocate batch buffer to avoid repeated allocations
     let mut batch = Vec::with_capacity(state.batch_size);
@@ -38,7 +40,7 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64
             state.next_value += 1;
         }
 
-        // Send entire batch at once for maximum throughput
+        // Send the entire batch at once for maximum throughput
         let sent_count = actor.send_slice_until_full(&mut generated, &batch);
         state.total_generated += sent_count as u64;
 
