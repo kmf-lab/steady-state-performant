@@ -131,9 +131,9 @@ async fn internal_behavior<A: SteadyActor>(
 
                 // Determine how many values we can process in this batch.
                 // We never process more than batch_size at a time.
-                let available = actor.avail_units(&mut generator).min(actor.vacant_units(&mut logger));
-                if available > 0 {
-                    let batch_size = available.min(state.batch_size);
+                let vacant_room = actor.vacant_units(&mut logger);
+                if vacant_room > 0 {
+                    let batch_size = vacant_room.min(state.batch_size);
 
                     // Take a slice of generator values into the pre-allocated buffer.
                     // This is a zero-allocation, cache-friendly operation.
@@ -155,7 +155,7 @@ async fn internal_behavior<A: SteadyActor>(
                         assert_eq!(sent_count, fizzbuzz_batch.len(), "expected to match since pre-checked");
 
                         // Log performance statistics periodically.
-                        if state.values_processed & ((1<<18)-1) == 0 {
+                        if state.values_processed & ((1<<22)-1) == 0 {
                             trace!("Worker processed {} values, sent {} messages",
                                    state.values_processed, state.messages_sent);
                         }
@@ -163,7 +163,7 @@ async fn internal_behavior<A: SteadyActor>(
                 }
 
                 // Log heartbeat statistics periodically.
-                if state.heartbeats_processed & ((1<<13)-1) == 0 {
+                if state.heartbeats_processed & ((1<<17)-1) == 0 {
                     trace!("Worker: {} heartbeats processed", state.heartbeats_processed);
                 }
             } else {

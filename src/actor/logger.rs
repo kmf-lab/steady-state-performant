@@ -42,49 +42,46 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
                                        cmd.wait_avail(&mut rx, state.batch_size));
 
         // Process messages in large batches for maximum throughput
-        let available = cmd.avail_units(&mut rx);
-        if available > 0 {
-            let batch_size = available.min(state.batch_size);
-            let taken = cmd.take_slice(&mut rx, &mut batch[..batch_size]).item_count();
 
-            if taken > 0 {
-                // Process the entire batch efficiently
-                for &msg in &batch[..taken] {
-                    match msg {
-                        FizzBuzzMessage::Fizz => {
-                            state.fizz_count += 1;
-                        }
-                        FizzBuzzMessage::Buzz => {
-                            state.buzz_count += 1;
-                        }
-                        FizzBuzzMessage::FizzBuzz => {
-                            state.fizzbuzz_count += 1;
-                        }
-                        FizzBuzzMessage::Value(_) => {
-                            state.value_count += 1;
-                        }
+        let taken = cmd.take_slice(&mut rx, &mut batch).item_count();
+        if taken > 0 {
+            // Process the entire batch efficiently
+            for &msg in &batch[..taken] {
+                match msg {
+                    FizzBuzzMessage::Fizz => {
+                        state.fizz_count += 1;
                     }
-
-                    state.messages_logged += 1;
-
-                    if state.messages_logged<16 || (state.messages_logged & ((1<<26) - 1)) == 0 {
-                        info!(
-                            "Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
-                            state.messages_logged,
-                            state.fizz_count,
-                            state.buzz_count,
-                            state.fizzbuzz_count,
-                            state.value_count
-                        );
-                    } else if (state.messages_logged & ((1<<22) - 1)) == 0 {
-                                            trace!(
-                            "Logger: {} messages processed",
-                            state.messages_logged
-                        );
+                    FizzBuzzMessage::Buzz => {
+                        state.buzz_count += 1;
                     }
+                    FizzBuzzMessage::FizzBuzz => {
+                        state.fizzbuzz_count += 1;
+                    }
+                    FizzBuzzMessage::Value(_) => {
+                        state.value_count += 1;
+                    }
+                }
+
+                state.messages_logged += 1;
+
+                if state.messages_logged<16 || (state.messages_logged & ((1<<27) - 1)) == 0 {
+                    info!(
+                        "Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
+                        state.messages_logged,
+                        state.fizz_count,
+                        state.buzz_count,
+                        state.fizzbuzz_count,
+                        state.value_count
+                    );
+                } else if (state.messages_logged & ((1<<23) - 1)) == 0 {
+                                        trace!(
+                        "Logger: {} messages processed",
+                        state.messages_logged
+                    );
                 }
             }
         }
+        
     }
 
     info!("Logger shutting down. Total: {} (F:{}, B:{}, FB:{}, V:{})",

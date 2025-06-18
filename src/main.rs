@@ -60,10 +60,10 @@ fn build_graph(graph: &mut Graph) {
         .with_capacity(1024)  // Large buffer for heartbeat bursts
         .build();
     let (generator_tx, generator_rx) = channel_builder // important for high volume throughput
-        .with_capacity(1<<20)  // Very large buffer for high-speed generation (1,048,576)
+        .with_capacity(1<<21)  // Very large buffer for high-speed generation (2M)
         .build();
     let (worker_tx, worker_rx) = channel_builder // important for high volume throughput
-        .with_capacity(1<<20)  // Large buffer for processed messages (1,048,576)
+        .with_capacity(1<<21)  // Large buffer for processed messages (2M)
         .build();
 
     // The actor builder is configured to collect thread/core info and load metrics.
