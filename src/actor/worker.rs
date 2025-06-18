@@ -137,7 +137,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                     // Take a slice of generator values into the pre-allocated buffer.
                     // This is a zero-allocation, cache-friendly operation.
-                    let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]);
+                    let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]).item_count();
                     if taken > 0 {
                         // Convert the batch of values to FizzBuzz messages.
                         // The fizzbuzz_batch buffer is reused every cycle.
@@ -149,7 +149,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                         // Send the entire batch to the logger in one operation.
                         // This minimizes synchronization and maximizes throughput.
-                        let sent_count = actor.send_slice_until_full(&mut logger, &fizzbuzz_batch);
+                        let sent_count = actor.send_slice(&mut logger, &fizzbuzz_batch).item_count();
                         state.values_processed += taken as u64;
                         state.messages_sent += sent_count as u64;
                         assert_eq!(sent_count, fizzbuzz_batch.len(), "expected to match since pre-checked");

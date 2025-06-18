@@ -1,4 +1,3 @@
-use std::thread::sleep;
 use steady_state::*;
 use crate::actor::worker::FizzBuzzMessage;
 
@@ -46,7 +45,7 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
         let available = cmd.avail_units(&mut rx);
         if available > 0 {
             let batch_size = available.min(state.batch_size);
-            let taken = cmd.take_slice(&mut rx, &mut batch[..batch_size]);
+            let taken = cmd.take_slice(&mut rx, &mut batch[..batch_size]).item_count();
 
             if taken > 0 {
                 // Process the entire batch efficiently
@@ -98,6 +97,7 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
 fn test_logger() -> Result<(), Box<dyn std::error::Error>> {
     use steady_logger::*;
     let _guard = start_log_capture();
+    use std::thread::sleep;
 
     let mut graph = GraphBuilder::for_testing().build(());
     let (fizz_buzz_tx, fizz_buzz_rx) = graph.channel_builder()

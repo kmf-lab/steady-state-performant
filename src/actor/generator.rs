@@ -41,7 +41,7 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64
         }
 
         // Send the entire batch at once for maximum throughput
-        let sent_count = actor.send_slice_until_full(&mut generated, &batch);
+        let sent_count = actor.send_slice(&mut generated, &batch).item_count();
         state.total_generated += sent_count as u64;
 
         if sent_count < batch.len() {
