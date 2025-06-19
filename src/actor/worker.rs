@@ -76,11 +76,9 @@ async fn internal_behavior<A: SteadyActor>(
     logger: SteadyTx<FizzBuzzMessage>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
-    // Lock all channels for exclusive access within this actor.
+    let mut logger = logger.lock().await;
     let mut heartbeat = heartbeat.lock().await;
     let mut generator = generator.lock().await;
-    let mut logger = logger.lock().await;
-
     // SLICES determines how many times we process a half-batch before yielding.
     // For double-buffering, this is set to 2.
     const SLICES: usize = 2; // important for high volume throughput
@@ -99,6 +97,10 @@ async fn internal_behavior<A: SteadyActor>(
     // fizzbuzz_batch: holds the converted FizzBuzz messages for a batch.
     let mut generator_batch = vec![0u64; state.batch_size];
     let mut fizzbuzz_batch = Vec::with_capacity(state.batch_size);
+
+    // Lock all channels for exclusive access within this actor.
+
+
 
     // Main processing loop.
     // The actor runs until all input channels are closed and empty, and the output channel is closed.
@@ -139,6 +141,32 @@ async fn internal_behavior<A: SteadyActor>(
                     // This is a zero-allocation, cache-friendly operation.
                     let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]).item_count();
                     if taken > 0 {
+
+                        //TODO: in progress zero copy
+                        // let sent_count =
+                        // actor.send_slice_direct(&mut logger, |(a,b)| {// TODO: need not be copy??
+                        //     let mut count = taken;
+                        //     let a_len = a.len();
+                        //     let bound = count.min(a_len);
+                        //     let mut i = 0;
+                        //     while i<bound {
+                        //         a[i].write(FizzBuzzMessage::new(generator_batch[i]));
+                        //         i+=1;
+                        //     }
+                        //     let remaining = count-i;
+                        //     let bound = remaining.min(b.len());
+                        //     let mut j = 0;
+                        //     while j<bound {
+                        //         b[j].write(FizzBuzzMessage::new(generator_batch[i]));
+                        //         i+=1;
+                        //         j+=1;
+                        //     }
+                        //
+                        //     TxDone::Normal(taken)
+                        // }).item_count();
+
+
+
                         // Convert the batch of values to FizzBuzz messages.
                         // The fizzbuzz_batch buffer is reused every cycle.
                         fizzbuzz_batch.clear();
@@ -150,9 +178,11 @@ async fn internal_behavior<A: SteadyActor>(
                         // Send the entire batch to the logger in one operation.
                         // This minimizes synchronization and maximizes throughput.
                         let sent_count = actor.send_slice(&mut logger, &fizzbuzz_batch).item_count();
+
+
                         state.values_processed += taken as u64;
                         state.messages_sent += sent_count as u64;
-                        assert_eq!(sent_count, fizzbuzz_batch.len(), "expected to match since pre-checked");
+                        debug_assert_eq!(sent_count, fizzbuzz_batch.len(), "expected to match since pre-checked");
 
                         // Log performance statistics periodically.
                         if state.values_processed & ((1<<22)-1) == 0 {

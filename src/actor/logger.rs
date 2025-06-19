@@ -43,7 +43,7 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
 
    
         // //zero copy solution
-        let (a,b) = cmd.peek_slice(&mut rx);
+        let (a,b) = cmd.peek_slice(&mut rx); //TODO: need not be copy??
         let len = a.len() + b.len();
         consume_items(&mut state, a);
         consume_items(&mut state, b);
