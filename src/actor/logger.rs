@@ -34,53 +34,28 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
     }).await;
 
 
-    // Pre-allocate batch buffer for high-performance processing
-    let mut batch = vec![FizzBuzzMessage::default(); state.batch_size];
+    // For double buffering solution
+    //let mut batch = vec![FizzBuzzMessage::default(); state.batch_size];
 
     while cmd.is_running(|| rx.is_closed_and_empty()) {
         await_for_all_or_proceed_upon!(cmd.wait_periodic(Duration::from_millis(40)),
                                        cmd.wait_avail(&mut rx, state.batch_size));
 
-        // Process messages in large batches for maximum throughput
+   
+        // //zero copy solution
+        let (a,b) = cmd.peek_slice(&mut rx);
+        let len = a.len() + b.len();
+        consume_items(&mut state, a);
+        consume_items(&mut state, b);
+        cmd.advance_read_index(&mut rx, len);
 
-        let taken = cmd.take_slice(&mut rx, &mut batch).item_count();
-        if taken > 0 {
-            // Process the entire batch efficiently
-            for &msg in &batch[..taken] {
-                match msg {
-                    FizzBuzzMessage::Fizz => {
-                        state.fizz_count += 1;
-                    }
-                    FizzBuzzMessage::Buzz => {
-                        state.buzz_count += 1;
-                    }
-                    FizzBuzzMessage::FizzBuzz => {
-                        state.fizzbuzz_count += 1;
-                    }
-                    FizzBuzzMessage::Value(_) => {
-                        state.value_count += 1;
-                    }
-                }
-
-                state.messages_logged += 1;
-
-                if state.messages_logged<16 || (state.messages_logged & ((1<<27) - 1)) == 0 {
-                    info!(
-                        "Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
-                        state.messages_logged,
-                        state.fizz_count,
-                        state.buzz_count,
-                        state.fizzbuzz_count,
-                        state.value_count
-                    );
-                } else if (state.messages_logged & ((1<<23) - 1)) == 0 {
-                                        trace!(
-                        "Logger: {} messages processed",
-                        state.messages_logged
-                    );
-                }
-            }
-        }
+        // //double buffer solution
+        // let taken = cmd.take_slice(&mut rx, &mut batch).item_count();
+        // if taken > 0 {
+        //     // Process the entire batch efficiently
+        //     let x = &batch[..taken];
+        //     consume_items(&mut state, x);
+        // }
         
     }
 
@@ -88,6 +63,43 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
           state.messages_logged, state.fizz_count, state.buzz_count,
           state.fizzbuzz_count, state.value_count);
     Ok(())
+}
+
+fn consume_items(state: &mut StateGuard<LoggerState>, x: &[FizzBuzzMessage]) {
+    for &msg in x {
+        match msg {
+            FizzBuzzMessage::Fizz => {
+                state.fizz_count += 1;
+            }
+            FizzBuzzMessage::Buzz => {
+                state.buzz_count += 1;
+            }
+            FizzBuzzMessage::FizzBuzz => {
+                state.fizzbuzz_count += 1;
+            }
+            FizzBuzzMessage::Value(_) => {
+                state.value_count += 1;
+            }
+        }
+
+        state.messages_logged += 1;
+
+        if state.messages_logged < 16 || (state.messages_logged & ((1 << 27) - 1)) == 0 {
+            info!(
+                        "Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
+                        state.messages_logged,
+                        state.fizz_count,
+                        state.buzz_count,
+                        state.fizzbuzz_count,
+                        state.value_count
+                    );
+        } else if (state.messages_logged & ((1 << 23) - 1)) == 0 {
+            trace!(
+                        "Logger: {} messages processed",
+                        state.messages_logged
+                    );
+        }
+    }
 }
 
 #[test]
