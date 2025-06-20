@@ -142,31 +142,6 @@ async fn internal_behavior<A: SteadyActor>(
                     let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]).item_count();
                     if taken > 0 {
 
-                        //TODO: in progress zero copy
-                        // let sent_count =
-                        // actor.send_slice_direct(&mut logger, |(a,b)| {// TODO: need not be copy??
-                        //     let mut count = taken;
-                        //     let a_len = a.len();
-                        //     let bound = count.min(a_len);
-                        //     let mut i = 0;
-                        //     while i<bound {
-                        //         a[i].write(FizzBuzzMessage::new(generator_batch[i]));
-                        //         i+=1;
-                        //     }
-                        //     let remaining = count-i;
-                        //     let bound = remaining.min(b.len());
-                        //     let mut j = 0;
-                        //     while j<bound {
-                        //         b[j].write(FizzBuzzMessage::new(generator_batch[i]));
-                        //         i+=1;
-                        //         j+=1;
-                        //     }
-                        //
-                        //     TxDone::Normal(taken)
-                        // }).item_count();
-
-
-
                         // Convert the batch of values to FizzBuzz messages.
                         // The fizzbuzz_batch buffer is reused every cycle.
                         fizzbuzz_batch.clear();
@@ -178,7 +153,6 @@ async fn internal_behavior<A: SteadyActor>(
                         // Send the entire batch to the logger in one operation.
                         // This minimizes synchronization and maximizes throughput.
                         let sent_count = actor.send_slice(&mut logger, &fizzbuzz_batch).item_count();
-
 
                         state.values_processed += taken as u64;
                         state.messages_sent += sent_count as u64;

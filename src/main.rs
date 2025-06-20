@@ -7,7 +7,8 @@ mod arg;
 pub(crate) mod actor {
     pub(crate) mod heartbeat;
     pub(crate) mod generator;
-    pub(crate) mod worker;
+    pub(crate) mod worker_double_buffer;
+    pub(crate) mod worker_zero_copy;
     pub(crate) mod logger;
 }
 
@@ -99,11 +100,22 @@ fn build_graph(graph: &mut Graph) {
         },  MemberOf(&mut team));
 
     // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
-    let state = new_state();
-    actor_builder.with_name(NAME_WORKER)
-        .build(move |context| {
-            actor::worker::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())
-        }, SoloAct);
+    let use_double_buffer = false;
+
+    if use_double_buffer {
+        let state = new_state();
+        actor_builder.with_name(NAME_WORKER)
+            .build(move |context| {
+                actor::worker_double_buffer::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())
+            }, SoloAct);
+    } else {
+        let state = new_state();
+        actor_builder.with_name(NAME_WORKER)
+            .build(move |context| {
+                actor::worker_zero_copy::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())
+            }, SoloAct);
+    }
+
 
     // Logger actor: runs on its own thread (SoloAct) for maximum throughput and isolation
     let state = new_state();
@@ -117,7 +129,7 @@ fn build_graph(graph: &mut Graph) {
 pub(crate) mod main_tests {
     use steady_state::*;
     use steady_state::graph_testing::{StageDirection, StageWaitFor};
-    use crate::actor::worker::FizzBuzzMessage;
+    use crate::actor::worker_double_buffer::FizzBuzzMessage;
     use super::*;
 
     // This test demonstrates orchestrated, multi-actor testing using the stage manager.

@@ -1,5 +1,5 @@
 use steady_state::*;
-use crate::actor::worker::FizzBuzzMessage;
+use crate::actor::worker_double_buffer::FizzBuzzMessage;
 
 pub(crate) struct LoggerState {
     pub(crate) messages_logged: u64,
@@ -47,7 +47,7 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
         let len = a.len() + b.len();
         consume_items(&mut state, a);
         consume_items(&mut state, b);
-        cmd.advance_read_index(&mut rx, len);
+        cmd.advance_take_index(&mut rx, len);
 
         // //double buffer solution
         // let taken = cmd.take_slice(&mut rx, &mut batch).item_count();
