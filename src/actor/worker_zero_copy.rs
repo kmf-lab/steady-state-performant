@@ -108,26 +108,29 @@ async fn internal_behavior<A: SteadyActor>(
                 let vacant_room = actor.vacant_units(&mut logger);
                 if vacant_room > 0 {
                     let batch_size = vacant_room.min(state.batch_size);
+                    
+               //     let (peek_a,peek_b) = actor.peek_slice(&mut generator);
+                    
 
                     // Take a slice of generator values into the pre-allocated buffer.
                     // This is a zero-allocation, cache-friendly operation.
                     let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]).item_count();
                     if taken > 0 {
 
-                        let (a,b) = actor.poke_slice(&mut logger);
+                        let (poke_a, poke_b) = actor.poke_slice(&mut logger);
 
-                        let a_len = a.len();
+                        let a_len = poke_a.len();
                         let bound = taken.min(a_len);
                         let mut i = 0;
                         while i<bound {
-                            a[i].write(FizzBuzzMessage::new(generator_batch[i]));
+                            poke_a[i].write(FizzBuzzMessage::new(generator_batch[i]));
                             i+=1;
                         }
                         let remaining = taken-i;
-                        let bound = remaining.min(b.len());
+                        let bound = remaining.min(poke_b.len());
                         let mut j = 0;
                         while j<bound {
-                            b[j].write(FizzBuzzMessage::new(generator_batch[i]));
+                            poke_b[j].write(FizzBuzzMessage::new(generator_batch[i]));
                             i+=1;
                             j+=1;
                         }
@@ -143,6 +146,9 @@ async fn internal_behavior<A: SteadyActor>(
                                    state.values_processed, state.messages_sent);
                         }
                     }
+                    
+                    
+                    
                 }
 
                 // Log heartbeat statistics periodically.
