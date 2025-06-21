@@ -100,7 +100,7 @@ fn build_graph(graph: &mut Graph) {
         },  MemberOf(&mut team));
 
     // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
-    let use_double_buffer = false;
+    let use_double_buffer = true;
 
     if use_double_buffer {
         let state = new_state();

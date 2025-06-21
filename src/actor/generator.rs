@@ -1,8 +1,6 @@
 use steady_state::*;
 
 pub(crate) struct GeneratorState {
-    pub(crate) next_value: u64,
-    pub(crate) batch_size: usize,
     pub(crate) total_generated: u64,
 }
 
@@ -20,34 +18,28 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64
     let mut generated = generated.lock().await;
 
     let mut state = state.lock(|| GeneratorState {
-        next_value: 0,
-        batch_size: generated.capacity()/2, // Large batch size for high throughput
         total_generated: 0,
     }).await;
-
-
-    // Pre-allocate batch buffer to avoid repeated allocations
-    let mut batch = Vec::with_capacity(state.batch_size);
+    let wait_for= generated.capacity()/4;
+    let mut next_value = state.total_generated;
 
     while actor.is_running(|| i!(generated.mark_closed())) {
         // Wait for sufficient room in channel for our batch
-        await_for_all!(actor.wait_vacant(&mut generated, state.batch_size));
-
-        // Prepare a full batch of values
-        batch.clear();
-        for _ in 0..state.batch_size {
-            batch.push(state.next_value);
-            state.next_value += 1;
-        }
-
-        // Send the entire batch at once for maximum throughput
-        let sent_count = actor.send_slice(&mut generated, &batch).item_count();
+        await_for_all!(actor.wait_vacant(&mut generated, wait_for));
+                
+        let (poke_a,poke_b) = actor.poke_slice(&mut generated);
+        let count = poke_a.len() + poke_b.len();
+        for i in 0..poke_a.len() {
+            poke_a[i].write(next_value);
+            next_value += 1;
+        } 
+        for i in 0..poke_b.len() {
+            poke_b[i].write(next_value);
+            next_value += 1;
+        }            
+       
+        let sent_count = actor.advance_send_index(&mut generated, count).item_count();
         state.total_generated += sent_count as u64;
-
-        if sent_count < batch.len() {
-            // Channel became full, adjust next_value to account for unsent messages
-            state.next_value -= (batch.len() - sent_count) as u64;
-        }
 
         // Log throughput periodically
         if state.total_generated % 10000 == 0 {
