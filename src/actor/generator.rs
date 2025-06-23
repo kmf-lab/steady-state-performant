@@ -20,7 +20,7 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64
     let mut state = state.lock(|| GeneratorState {
         total_generated: 0,
     }).await;
-    let wait_for= generated.capacity()/4;
+    let wait_for= generated.capacity()/2;
     let mut next_value = state.total_generated;
 
     while actor.is_running(|| i!(generated.mark_closed())) {

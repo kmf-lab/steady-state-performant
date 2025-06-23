@@ -8,8 +8,6 @@ use crate::actor::worker_double_buffer::FizzBuzzMessage;
 /// The batch_size is set to half the channel capacity for double-buffering.
 pub(crate) struct WorkerState {
     pub(crate) heartbeats_processed: u64,
-    pub(crate) values_processed: u64,
-    pub(crate) messages_sent: u64,
 }
 
 /// Entry point for the worker actor.
@@ -56,8 +54,6 @@ async fn internal_behavior<A: SteadyActor>(
     // This ensures that the producer can fill one half while the consumer processes the other.
     let mut state = state.lock(|| WorkerState {
         heartbeats_processed: 0,
-        values_processed: 0,
-        messages_sent: 0,
     }).await;
 
     let min_generator_wait = generator.capacity()/2;
@@ -86,71 +82,56 @@ async fn internal_behavior<A: SteadyActor>(
                 state.heartbeats_processed += 1;
 
 
-                    let (peek_a,peek_b) = actor.peek_slice(&mut generator);
-                    let (poke_a, poke_b) = actor.poke_slice(&mut logger);
+                let (peek_a,peek_b) = actor.peek_slice(&mut generator);
+                let (poke_a, poke_b) = actor.poke_slice(&mut logger);
 
-                    let take_count = (peek_a.len() + peek_b.len()).min(poke_a.len() + poke_b.len());
+                let take_count = (peek_a.len() + peek_b.len()).min(poke_a.len() + poke_b.len());
+                let switch_input = peek_a.len();
+                let switch_output = poke_a.len();
 
-                    let a_len = poke_a.len();
-                    let bound = take_count.min(a_len);
-                    let mut i = 0;
-                    if bound<=peek_a.len() {
-                        while i<bound {
-                            poke_a[i].write(FizzBuzzMessage::new(peek_a[i]));
-                            i+=1;
-                        }                         
-                    } else {
-                        while i<peek_a.len() {
-                            poke_a[i].write(FizzBuzzMessage::new(peek_a[i]  ));
-                            i+=1;
-                        }
-                        while i<bound {
-                            poke_a[i].write(FizzBuzzMessage::new(peek_b[i-peek_a.len()]  ));
-                            i+=1;
-                        }
-                    }                
-                
-                    let remaining = take_count-i;
-                    let bound = remaining.min(poke_b.len());
-                    let mut j = 0;
-                    
-                    if bound <= peek_a.len() {
-                        while j<bound {
-                            poke_b[j].write(FizzBuzzMessage::new(peek_a[i] ));
-                            i+=1;
-                            j+=1;
-                        }
-                    } else {
+                // Loop 1: peek_a to poke_a
+                let end1 = switch_input.min(switch_output).min(take_count);
+                for i in 0..end1 {
+                    poke_a[i].write(FizzBuzzMessage::new(peek_a[i]));
+                }
 
-                        while j<peek_a.len() {
-                            poke_b[j].write(FizzBuzzMessage::new(peek_b[i-peek_a.len()] ));
-                            i+=1;
-                            j+=1;
-                        }
-                        while j<bound {
-                             poke_b[j].write(FizzBuzzMessage::new(peek_b[i-peek_a.len()] ));
-                             i+=1;
-                             j+=1;
-                        }
-                    }                          
+                // Loop 2: peek_a to poke_b
+                let start2 = switch_output;
+                let end2 = if switch_output < switch_input {
+                    switch_input.min(take_count)
+                } else {
+                    start2 // Loop is empty
+                };
+                for i in start2..end2 {
+                    poke_b[i - switch_output].write(FizzBuzzMessage::new(peek_a[i]));
+                }
+
+                // Loop 3: peek_b to poke_a
+                let start3 = switch_input;
+                let end3 = if switch_input < switch_output {
+                    switch_output.min(take_count)
+                } else {
+                    start3 // Loop is empty
+                };
+                for i in start3..end3 {
+                    poke_a[i].write(FizzBuzzMessage::new(peek_b[i - switch_input]));
+                }
+
+                // Loop 4: peek_b to poke_b
+                let start4 = switch_input.max(switch_output);
+                let end4 = take_count;
+                for i in start4..end4 {
+                    poke_b[i - switch_output].write(FizzBuzzMessage::new(peek_b[i - switch_input]));
+                }
                 
                 
-                    assert_eq!(take_count, actor.advance_send_index(&mut logger, take_count).item_count(), "move write position");
-                    assert_eq!(take_count, actor.advance_take_index(&mut generator, take_count).item_count(), "move read position");
+                assert_eq!(take_count, actor.advance_send_index(&mut logger, take_count).item_count(), "move write position");
+                assert_eq!(take_count, actor.advance_take_index(&mut generator, take_count).item_count(), "move read position");
 
 
-                    state.values_processed += take_count as u64;
-                    state.messages_sent += (i+j) as u64;
+                state.heartbeats_processed += take_count as u64;
 
-                    // Log performance statistics periodically.
-                    if state.values_processed & ((1<<22)-1) == 0 {
-                        trace!("Worker processed {} values, sent {} messages",
-                               state.values_processed, state.messages_sent);
-                    }
-                
-
-                // Log heartbeat statistics periodically.
-                if state.heartbeats_processed & ((1<<17)-1) == 0 {
+                if state.heartbeats_processed & ((1<<26)-1) == 0 {
                     trace!("Worker: {} heartbeats processed", state.heartbeats_processed);
                 }
             } else {
@@ -161,8 +142,8 @@ async fn internal_behavior<A: SteadyActor>(
     }
 
     // Final shutdown log, reporting all statistics.
-    info!("Worker shutting down. Heartbeats: {}, Values: {}, Messages: {}",
-          state.heartbeats_processed, state.values_processed, state.messages_sent);
+    info!("Worker shutting down. Heartbeats: {}",
+          state.heartbeats_processed);
     Ok(())
 }
 
