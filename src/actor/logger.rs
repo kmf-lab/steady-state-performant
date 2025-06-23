@@ -3,7 +3,6 @@ use crate::actor::worker_double_buffer::FizzBuzzMessage;
 
 pub(crate) struct LoggerState {
     pub(crate) messages_logged: u64,
-    pub(crate) batch_size: usize,
     pub(crate) fizz_count: u64,
     pub(crate) buzz_count: u64,
     pub(crate) fizzbuzz_count: u64,
@@ -26,7 +25,6 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
     
     let mut state = state.lock(|| LoggerState {
         messages_logged: 0,
-        batch_size: rx.capacity()/2,
         fizz_count: 0,
         buzz_count: 0,
         fizzbuzz_count: 0,
@@ -34,16 +32,18 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
     }).await;
 
 
+    let batch_size = rx.capacity()/2;
+    let max_latency = Duration::from_millis(30);
     // For double buffering solution
-    //let mut batch = vec![FizzBuzzMessage::default(); state.batch_size];
+    //let mut batch = vec![FizzBuzzMessage::default(); batch_size];
 
     while cmd.is_running(|| rx.is_closed_and_empty()) {
-        await_for_all_or_proceed_upon!(cmd.wait_periodic(Duration::from_millis(40)),
-                                       cmd.wait_avail(&mut rx, state.batch_size));
+        await_for_any!(cmd.wait_periodic(max_latency),
+                       cmd.wait_avail(&mut rx, batch_size));
 
-   
+
         // //zero copy solution
-        let (a,b) = cmd.peek_slice(&mut rx); //TODO: need not be copy??
+        let (a,b) = cmd.peek_slice(&mut rx);
         let len = a.len() + b.len();
         consume_items(&mut state, a);
         consume_items(&mut state, b);
@@ -65,41 +65,39 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
     Ok(())
 }
 
-fn consume_items(state: &mut StateGuard<LoggerState>, x: &[FizzBuzzMessage]) {
-    for &msg in x {
-        match msg {
-            FizzBuzzMessage::Fizz => {
-                state.fizz_count += 1;
+fn consume_items(state: &mut StateGuard<LoggerState>, items: &[FizzBuzzMessage]) {
+
+
+        let mut fizz = 0u64;
+        let mut buzz = 0u64;
+        let mut fizzbuzz = 0u64;
+        let mut value = 0u64;
+        let mut total = state.messages_logged;
+        for &msg in items {
+            match msg {
+                FizzBuzzMessage::Fizz => fizz += 1,
+                FizzBuzzMessage::Buzz => buzz += 1,
+                FizzBuzzMessage::FizzBuzz => fizzbuzz += 1,
+                FizzBuzzMessage::Value(_) => value += 1,
             }
-            FizzBuzzMessage::Buzz => {
-                state.buzz_count += 1;
-            }
-            FizzBuzzMessage::FizzBuzz => {
-                state.fizzbuzz_count += 1;
-            }
-            FizzBuzzMessage::Value(_) => {
-                state.value_count += 1;
+            total += 1;
+            if total < 16 || (total & ((1 << 27) - 1)) == 0 {
+                info!(
+                            "Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
+                            total,
+                            state.fizz_count+fizz,
+                            state.buzz_count+buzz,
+                            state.fizzbuzz_count+fizzbuzz,
+                            state.value_count+value
+                        );
             }
         }
+        state.fizz_count += fizz;
+        state.buzz_count += buzz;
+        state.fizzbuzz_count += fizzbuzz;
+        state.value_count += value;
+        state.messages_logged = total;
 
-        state.messages_logged += 1;
-
-        if state.messages_logged < 16 || (state.messages_logged & ((1 << 27) - 1)) == 0 {
-            info!(
-                        "Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
-                        state.messages_logged,
-                        state.fizz_count,
-                        state.buzz_count,
-                        state.fizzbuzz_count,
-                        state.value_count
-                    );
-        } else if (state.messages_logged & ((1 << 23) - 1)) == 0 {
-            trace!(
-                        "Logger: {} messages processed",
-                        state.messages_logged
-                    );
-        }
-    }
 }
 
 #[test]

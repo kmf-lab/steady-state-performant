@@ -61,10 +61,10 @@ fn build_graph(graph: &mut Graph) {
         .with_capacity(1024)  // Large buffer for heartbeat bursts
         .build();
     let (generator_tx, generator_rx) = channel_builder // important for high volume throughput
-        .with_capacity(1<<21)  // Very large buffer for high-speed generation (2M)
+        .with_capacity(1<<21)  // Large buffer for high-speed generation
         .build();
     let (worker_tx, worker_rx) = channel_builder // important for high volume throughput
-        .with_capacity(1<<21)  // Large buffer for processed messages (2M)
+        .with_capacity(1<<21)  // Large buffer for processed messages
         .build();
 
     // The actor builder is configured to collect thread/core info and load metrics.
@@ -100,7 +100,7 @@ fn build_graph(graph: &mut Graph) {
         },  MemberOf(&mut team));
 
     // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
-    let use_double_buffer = true;
+    let use_double_buffer = false;
 
     if use_double_buffer {
         let state = new_state();

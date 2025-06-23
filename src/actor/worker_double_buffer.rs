@@ -100,6 +100,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     // Lock all channels for exclusive access within this actor.
 
+    let max_latency = Duration::from_millis(30);
 
 
     // Main processing loop.
@@ -115,7 +116,7 @@ async fn internal_behavior<A: SteadyActor>(
         // - At least half a channel's worth of generator data (for batch efficiency)
         // - Sufficient space in the logger channel for a batch
         let is_clean = await_for_all_or_proceed_upon!(
-            actor.wait_periodic(Duration::from_millis(10)),
+            actor.wait_periodic(max_latency),
             actor.wait_avail(&mut heartbeat, 1),
             actor.wait_avail(&mut generator, state.batch_size),
             actor.wait_vacant(&mut logger, state.batch_size)

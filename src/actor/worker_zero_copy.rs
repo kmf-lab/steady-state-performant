@@ -58,6 +58,8 @@ async fn internal_behavior<A: SteadyActor>(
 
     let min_generator_wait = generator.capacity()/2;
     let min_logger_wait = logger.capacity()/2;
+    let max_latency = Duration::from_millis(30);
+
     // Main processing loop.
     // The actor runs until all input channels are closed and empty, and the output channel is closed.
     while actor.is_running(||
@@ -69,7 +71,7 @@ async fn internal_behavior<A: SteadyActor>(
         // - A periodic timer (to avoid starvation)
         // - At least one heartbeat (to trigger processing)
         let is_clean = await_for_all_or_proceed_upon!(
-            actor.wait_periodic(Duration::from_millis(40)),
+            actor.wait_periodic(max_latency),
             actor.wait_avail(&mut heartbeat, 1),
             actor.wait_avail(&mut generator, min_generator_wait),
             actor.wait_vacant(&mut logger, min_logger_wait)
@@ -82,7 +84,7 @@ async fn internal_behavior<A: SteadyActor>(
                 state.heartbeats_processed += 1;
 
 
-                let (peek_a,peek_b) = actor.peek_slice(&mut generator);
+                let (peek_a, peek_b) = actor.peek_slice(&mut generator);
                 let (poke_a, poke_b) = actor.poke_slice(&mut logger);
 
                 let take_count = (peek_a.len() + peek_b.len()).min(poke_a.len() + poke_b.len());
