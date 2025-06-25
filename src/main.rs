@@ -72,6 +72,9 @@ fn build_graph(graph: &mut Graph) {
     // - with_load_avg, with_mcpu_avg: enables real-time load and CPU usage metrics
     let actor_builder = graph.actor_builder()
         .with_thread_info()
+        .with_mcpu_trigger(Trigger::AvgAbove(MCPU::m768()), AlertColor::Red)
+        .with_mcpu_trigger(Trigger::AvgAbove(MCPU::m512()), AlertColor::Orange)
+        .with_mcpu_trigger(Trigger::AvgAbove(MCPU::m256()), AlertColor::Yellow)
         .with_load_avg()
         .with_mcpu_avg();
 
@@ -100,7 +103,7 @@ fn build_graph(graph: &mut Graph) {
         },  MemberOf(&mut team));
 
     // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
-    let use_double_buffer = false;
+    let use_double_buffer = true;
 
     if use_double_buffer {
         let state = new_state();
