@@ -20,7 +20,6 @@ pub async fn run(actor: SteadyActorShadow, fizz_buzz_rx: SteadyRx<FizzBuzzMessag
 
 async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
 
-
     let mut rx = rx.lock().await;
     
     let mut state = state.lock(|| LoggerState {
@@ -35,7 +34,7 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
     let batch_size = rx.capacity()/2;
     let max_latency = Duration::from_millis(30);
     // For double buffering solution
-    //let mut batch = vec![FizzBuzzMessage::default(); batch_size];
+    //let mut batch = vec![FizzBuzzMessage::default(); batch_size];  //#!#//
 
     while cmd.is_running(|| rx.is_closed_and_empty()) {
         await_for_any!(cmd.wait_periodic(max_latency),
@@ -43,14 +42,14 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
 
 
         // //zero copy solution
-        let (a,b) = cmd.peek_slice(&mut rx);
+        let (a,b) = cmd.peek_slice(&mut rx);  //#!#//
         let len = a.len() + b.len();
         consume_items(&mut state, a);
         consume_items(&mut state, b);
         cmd.advance_take_index(&mut rx, len);
 
         // //double buffer solution
-        // let taken = cmd.take_slice(&mut rx, &mut batch).item_count();
+        // let taken = cmd.take_slice(&mut rx, &mut batch).item_count();   //#!#//
         // if taken > 0 {
         //     // Process the entire batch efficiently
         //     let x = &batch[..taken];
@@ -103,8 +102,9 @@ fn consume_items(state: &mut StateGuard<LoggerState>, items: &[FizzBuzzMessage])
 #[test]
 fn test_logger() -> Result<(), Box<dyn std::error::Error>> {
     use steady_logger::*;
-    let _guard = start_log_capture();
     use std::thread::sleep;
+
+    let _guard = start_log_capture();
 
     let mut graph = GraphBuilder::for_testing().build(());
     let (fizz_buzz_tx, fizz_buzz_rx) = graph.channel_builder()

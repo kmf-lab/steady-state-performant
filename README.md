@@ -31,13 +31,12 @@ This lesson introduces three key optimizations for maximum throughput:
 
 ```
 Generator (batch: 524,288) → Worker (batch: 524,288 x 2, or zero-copy) → Logger (batch: large)
-↗
-Heartbeat (burst: 32)
+    eartbeat (burst: 1024) ↗
 ```
 
 - **Generator**: Produces values in very large batches, filling half the channel at a time.
 - **Heartbeat**: Triggers worker batches in bursts, coordinating timing.
-- **Worker**: Consumes a full channel (two half-batches, over a million messages) before yielding, converting values to FizzBuzz messages.
+- **Worker**: Consumes a full channel (two half-batches, a million messages) before yielding, converting values to FizzBuzz messages.
    - Can use either double-buffering (copying into a pre-allocated buffer) or zero-copy (operating directly on channel memory).
 - **Logger**: Processes large batches, tracking statistics and throughput.
 
@@ -84,7 +83,7 @@ This means the system will run for about one minute, processing billions of mess
 ## 📊 Real-World Telemetry: True Throughput
 
 Below is a real snapshot from the built-in telemetry server, running on a modern i5 CPU.  
-This shows the system sustaining **over 64 million messages per second** through the main pipeline, with all actors and channels operating at maximum efficiency.
+This shows the system sustaining **over 128 million messages per second** through the main pipeline, with all actors and channels operating at maximum efficiency.
 
 ```dot
 digraph G {
@@ -102,7 +101,7 @@ Capacity: 1048576 Total: 941,231,872
 ```
 
 **What does this show?**
-- The generator and worker are moving over **64 million messages per second**.
+- The generator and worker are moving over **128 million messages per second**.
 - Channels are running at 100% fill (full double-buffering).
 - CPU load is moderate, showing the design is not just fast, but efficient and scalable.
 
@@ -139,11 +138,11 @@ This demonstrates the system processed **over 9.6 billion messages** in about a 
 ## 📈 Throughput Scaling
 
 | Version                        | Messages/sec         | Batch Size           | Channel Capacity | Memory Usage |
-|--------------------------------|---------------------|----------------------|------------------|-------------|
-| Robust                         | ~1,000              | 1                    | 64               | Minimal    |
-| Standard                       | ~10,000             | 16–64                | 1024             | Minimal    |
-| **Performant (Double Buffer)** | **50–200M**         | 524,288–1,048,576    | 1,048,576        | Constant    |
-| **Performant (Zero Copy)**     | **150–300M**        | (Direct, in-place)   | 1,048,576+       | Minimal     |
+|--------------------------------|---------------------|----------------------|----------------|-------------|
+| Robust                         | ~1,000              | 1                    | 64             | Minimal    |
+| Standard                       | ~10,000             | 16–64                | 1024           | Minimal    |
+| **Performant (Double Buffer)** | **50–200M**         | 524,288–1,048,576    | 1,048,576      | Constant    |
+| **Performant (Zero Copy)**     | **150–300M**        | (Direct, in-place)   | 1,048,576      | Minimal     |
 
 ---
 
@@ -154,7 +153,7 @@ This demonstrates the system processed **over 9.6 billion messages** in about a 
 
 - **Zero Copy**:  
   For those who need to push the limits, the zero-copy mode can reach **150–300 million messages per second**. This mode eliminates all intermediate allocations and copies, operating directly on channel memory. It requires more careful code, but delivers the highest possible throughput for workloads that can take advantage of it.
-
+  *These are initial numbers, future versions will probably have significantly higher values*.
 ---
 
 ## 🛠️ Usage
@@ -195,3 +194,5 @@ This will switch the worker to the zero-copy implementation, demonstrating the a
 - Explore the `steady_state` metrics dashboard for real-time performance insights.
 - Compare with the `minimum` and `standard` lessons to see the impact of each optimization.
 - Experiment with zero-copy mode for ultimate performance, and study the code to understand the tradeoffs and requirements.
+
+When reviewing the source code, look for //#!#// which demonstrate key ideas you need to know.

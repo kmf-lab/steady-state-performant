@@ -64,7 +64,7 @@ pub async fn run(
 /// The core logic for the worker actor.
 /// This function implements high-throughput, cache-friendly batch processing.
 ///
-/// Key performance strategies:
+/// Key performance strategies:      //#!#//
 /// - **Double-buffering**: The channel is logically split into two halves. While one half is being filled by the producer, the consumer processes the other half.
 /// - **Full-channel consumption**: The worker processes both halves (two slices) before yielding, maximizing cache line reuse and minimizing context switches.
 /// - **Pre-allocated buffers**: All batch buffers are allocated once and reused, ensuring zero-allocation hot paths.
@@ -95,13 +95,13 @@ async fn internal_behavior<A: SteadyActor>(
     // Pre-allocate buffers for batch processing.
     // generator_batch: holds up to half the channel's values at a time.
     // fizzbuzz_batch: holds the converted FizzBuzz messages for a batch.
-    let mut generator_batch = vec![0u64; state.batch_size];
-    let mut fizzbuzz_batch = Vec::with_capacity(state.batch_size);
+    // This requires all messages to be Copy to make use of double buffering
+    let mut generator_batch = vec![0u64; state.batch_size];    //#!#//
+    let mut fizzbuzz_batch = Vec::with_capacity(state.batch_size);  //#!#//
 
     // Lock all channels for exclusive access within this actor.
 
     let max_latency = Duration::from_millis(30);
-
 
     // Main processing loop.
     // The actor runs until all input channels are closed and empty, and the output channel is closed.
@@ -115,7 +115,7 @@ async fn internal_behavior<A: SteadyActor>(
         // - At least one heartbeat (to trigger processing)
         // - At least half a channel's worth of generator data (for batch efficiency)
         // - Sufficient space in the logger channel for a batch
-        let is_clean = await_for_all_or_proceed_upon!(
+        let is_clean = await_for_all_or_proceed_upon!(  //#!#//
             actor.wait_periodic(max_latency),
             actor.wait_avail(&mut heartbeat, 1),
             actor.wait_avail(&mut generator, state.batch_size),
@@ -140,7 +140,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                     // Take a slice of generator values into the pre-allocated buffer.
                     // This is a zero-allocation, cache-friendly operation.
-                    let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]).item_count();
+                    let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]).item_count();//#!#//
                     if taken > 0 {
 
                         // Convert the batch of values to FizzBuzz messages.
@@ -153,7 +153,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                         // Send the entire batch to the logger in one operation.
                         // This minimizes synchronization and maximizes throughput.
-                        let sent_count = actor.send_slice(&mut logger, &fizzbuzz_batch).item_count();
+                        let sent_count = actor.send_slice(&mut logger, &fizzbuzz_batch).item_count();//#!#//
 
                         state.values_processed += taken as u64;
                         state.messages_sent += sent_count as u64;

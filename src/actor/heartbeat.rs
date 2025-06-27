@@ -1,8 +1,8 @@
 use steady_state::*;
 
-/// Persistent counter state that survives actor restarts.
+/// Counter state that survives actor restarts.
 /// Heartbeat actors often need to maintain timing consistency across failures,
-/// making persistent state essential for reliable scheduling.
+/// making reliable state essential for reliable scheduling.
 pub(crate) struct HeartbeatState {
     pub(crate) count: u64
 }
@@ -43,7 +43,7 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A
         await_for_all!(actor.wait_periodic(rate),
                        actor.wait_vacant(&mut heartbeat_tx, 1));
 
-        let _ = actor.try_send(&mut heartbeat_tx, state.count);
+        actor.try_send(&mut heartbeat_tx, state.count).expect("unable to send");
 
         state.count += 1;
         // Self-terminating behavior allows actors to control application lifecycle.

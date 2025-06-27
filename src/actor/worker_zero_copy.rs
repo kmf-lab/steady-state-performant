@@ -1,8 +1,6 @@
 use steady_state::*;
 use crate::actor::worker_double_buffer::FizzBuzzMessage;
 
-
-
 /// State struct for the worker actor.
 /// Tracks the number of heartbeats, values processed, messages sent, and the batch size.
 /// The batch_size is set to half the channel capacity for double-buffering.
@@ -32,13 +30,6 @@ pub async fn run(
 }
 
 /// The core logic for the worker actor.
-/// This function implements high-throughput, cache-friendly batch processing.
-///
-/// Key performance strategies:
-/// - **Double-buffering**: The channel is logically split into two halves. While one half is being filled by the producer, the consumer processes the other half.
-/// - **Full-channel consumption**: The worker processes both halves (two slices) before yielding, maximizing cache line reuse and minimizing context switches.
-/// - **Pre-allocated buffers**: All batch buffers are allocated once and reused, ensuring zero-allocation hot paths.
-/// - **Mechanically sympathetic**: The design aligns with CPU cache and memory bus behavior for optimal throughput.
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     heartbeat: SteadyRx<u64>,
@@ -73,7 +64,7 @@ async fn internal_behavior<A: SteadyActor>(
         let is_clean = await_for_all_or_proceed_upon!(
             actor.wait_periodic(max_latency),
             actor.wait_avail(&mut heartbeat, 1),
-            actor.wait_avail(&mut generator, min_generator_wait),
+            actor.wait_avail(&mut generator, min_generator_wait),//#!#//
             actor.wait_vacant(&mut logger, min_logger_wait)
         );
 
@@ -84,8 +75,8 @@ async fn internal_behavior<A: SteadyActor>(
                 state.heartbeats_processed += 1;
 
 
-                let (peek_a, peek_b) = actor.peek_slice(&mut generator);
-                let (poke_a, poke_b) = actor.poke_slice(&mut logger);
+                let (peek_a, peek_b) = actor.peek_slice(&mut generator);//#!#//
+                let (poke_a, poke_b) = actor.poke_slice(&mut logger);//#!#//
 
                 let take_count = (peek_a.len() + peek_b.len()).min(poke_a.len() + poke_b.len());
                 let switch_input = peek_a.len();
@@ -127,8 +118,8 @@ async fn internal_behavior<A: SteadyActor>(
                 }
                 
                 
-                assert_eq!(take_count, actor.advance_send_index(&mut logger, take_count).item_count(), "move write position");
-                assert_eq!(take_count, actor.advance_take_index(&mut generator, take_count).item_count(), "move read position");
+                assert_eq!(take_count, actor.advance_send_index(&mut logger, take_count).item_count(), "move write position");//#!#//
+                assert_eq!(take_count, actor.advance_take_index(&mut generator, take_count).item_count(), "move read position");//#!#//
 
 
                 state.heartbeats_processed += take_count as u64;

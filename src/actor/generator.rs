@@ -23,11 +23,12 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64
     let wait_for= generated.capacity()/2;
     let mut next_value = state.total_generated;
 
-    while actor.is_running(|| i!(generated.mark_closed())) {
+    while actor.is_running(|| generated.mark_closed()) {
         // Wait for sufficient room in channel for our batch
         await_for_all!(actor.wait_vacant(&mut generated, wait_for));
                 
-        let (poke_a,poke_b) = actor.poke_slice(&mut generated);
+        // simple example of a zero copy write
+        let (poke_a,poke_b) = actor.poke_slice(&mut generated); //#!#//
         let count = poke_a.len() + poke_b.len();
         for i in 0..poke_a.len() {
             poke_a[i].write(next_value);
@@ -38,7 +39,7 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64
             next_value += 1;
         }            
        
-        let sent_count = actor.advance_send_index(&mut generated, count).item_count();
+        let sent_count = actor.advance_send_index(&mut generated, count).item_count(); //#!#//
         state.total_generated += sent_count as u64;
 
         // Log throughput periodically
@@ -77,7 +78,7 @@ pub(crate) mod generator_tests {
         graph.block_until_stopped(Duration::from_secs(1))?;
 
         // Should have many more messages due to batch processing
-        let messages: Vec<u64> = generate_rx.testing_take_all();
+        let messages: Vec<u64> = generate_rx.testing_take_all(); //#!#//
         assert!(messages.len() >= 256); // At least one full batch
         assert_eq!(messages[0], 0);
         assert_eq!(messages[1], 1);

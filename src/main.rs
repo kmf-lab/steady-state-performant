@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cli_args = MainArg::parse();
 
     // Initialize logging at Info level for runtime diagnostics and performance output.
-    let _ = init_logging(LogLevel::Info);
+    init_logging(LogLevel::Info)?;
 
     // Build the actor graph with all channels and actors, using the parsed arguments.
     let mut graph = GraphBuilder::default()
@@ -103,19 +103,19 @@ fn build_graph(graph: &mut Graph) {
         },  MemberOf(&mut team));
 
     // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
-    let use_double_buffer = true;
+    let use_double_buffer = true;//#!#//
 
     if use_double_buffer {
         let state = new_state();
         actor_builder.with_name(NAME_WORKER)
             .build(move |context| {
-                actor::worker_double_buffer::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())
+                actor::worker_double_buffer::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())//#!#//
             }, SoloAct);
     } else {
         let state = new_state();
         actor_builder.with_name(NAME_WORKER)
             .build(move |context| {
-                actor::worker_zero_copy::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())
+                actor::worker_zero_copy::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())//#!#//
             }, SoloAct);
     }
 
