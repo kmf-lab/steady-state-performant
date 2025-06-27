@@ -43,7 +43,7 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64
         state.total_generated += sent_count as u64;
 
         // Log throughput periodically
-        if 0 == (state.total_generated & ((1u64<<13)-1)) {
+        if 0 == (next_value & ((1u64<<23)-1)) {
             trace!("Generator: {} total messages sent", state.total_generated);
         }
     }

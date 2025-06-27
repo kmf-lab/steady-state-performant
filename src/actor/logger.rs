@@ -40,21 +40,23 @@ async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMess
         await_for_any!(cmd.wait_periodic(max_latency),
                        cmd.wait_avail(&mut rx, batch_size));
 
-
-        // //zero copy solution
-        let (a,b) = cmd.peek_slice(&mut rx);  //#!#//
-        let len = a.len() + b.len();
-        consume_items(&mut state, a);
-        consume_items(&mut state, b);
-        cmd.advance_take_index(&mut rx, len);
-
-        // //double buffer solution
-        // let taken = cmd.take_slice(&mut rx, &mut batch).item_count();   //#!#//
-        // if taken > 0 {
-        //     // Process the entire batch efficiently
-        //     let x = &batch[..taken];
-        //     consume_items(&mut state, x);
-        // }
+        // Pressing the actor to work harder, keep going until work is gone
+        while cmd.avail_units(&mut rx) >= batch_size {
+            // //zero copy solution
+            let (a,b) = cmd.peek_slice(&mut rx);  //#!#//
+            let len = a.len() + b.len();
+            consume_items(&mut state, a);
+            consume_items(&mut state, b);
+            cmd.advance_take_index(&mut rx, len);
+    
+            // //double buffer solution
+            // let taken = cmd.take_slice(&mut rx, &mut batch).item_count();   //#!#//
+            // if taken > 0 {
+            //     // Process the entire batch efficiently
+            //     let x = &batch[..taken];
+            //     consume_items(&mut state, x);
+            // }
+        }
         
     }
 

@@ -68,70 +68,69 @@ async fn internal_behavior<A: SteadyActor>(
             actor.wait_vacant(&mut logger, min_logger_wait)
         );
 
-
-            // Only proceed if a heartbeat is available or if any awaited condition is ready.
-            // This ensures we don't leave data stranded in the channel.
-            if actor.try_take(&mut heartbeat).is_some() || !is_clean {
-                state.heartbeats_processed += 1;
-
-
-                let (peek_a, peek_b) = actor.peek_slice(&mut generator);//#!#//
-                let (poke_a, poke_b) = actor.poke_slice(&mut logger);//#!#//
-
-                let take_count = (peek_a.len() + peek_b.len()).min(poke_a.len() + poke_b.len());
-                let switch_input = peek_a.len();
-                let switch_output = poke_a.len();
-
-                // Loop 1: peek_a to poke_a
-                let end1 = switch_input.min(switch_output).min(take_count);
-                for i in 0..end1 {
-                    poke_a[i].write(FizzBuzzMessage::new(peek_a[i]));
-                }
-
-                // Loop 2: peek_a to poke_b
-                let start2 = switch_output;
-                let end2 = if switch_output < switch_input {
-                    switch_input.min(take_count)
-                } else {
-                    start2 // Loop is empty
-                };
-                for i in start2..end2 {
-                    poke_b[i - switch_output].write(FizzBuzzMessage::new(peek_a[i]));
-                }
-
-                // Loop 3: peek_b to poke_a
-                let start3 = switch_input;
-                let end3 = if switch_input < switch_output {
-                    switch_output.min(take_count)
-                } else {
-                    start3 // Loop is empty
-                };
-                for i in start3..end3 {
-                    poke_a[i].write(FizzBuzzMessage::new(peek_b[i - switch_input]));
-                }
-
-                // Loop 4: peek_b to poke_b
-                let start4 = switch_input.max(switch_output);
-                let end4 = take_count;
-                for i in start4..end4 {
-                    poke_b[i - switch_output].write(FizzBuzzMessage::new(peek_b[i - switch_input]));
-                }
-                
-                
-                assert_eq!(take_count, actor.advance_send_index(&mut logger, take_count).item_count(), "move write position");//#!#//
-                assert_eq!(take_count, actor.advance_take_index(&mut generator, take_count).item_count(), "move read position");//#!#//
+  
+        // Only proceed if a heartbeat is available or if any awaited condition is ready.
+        // This ensures we don't leave data stranded in the channel.
+        if actor.try_take(&mut heartbeat).is_some() || !is_clean {
+            state.heartbeats_processed += 1;
 
 
-                state.heartbeats_processed += take_count as u64;
+            let (peek_a, peek_b) = actor.peek_slice(&mut generator);//#!#//
+            let (poke_a, poke_b) = actor.poke_slice(&mut logger);//#!#//
 
-                if state.heartbeats_processed & ((1<<26)-1) == 0 {
-                    trace!("Worker: {} heartbeats processed", state.heartbeats_processed);
-                }
-            } else {
-                // If no heartbeat and no other condition is ready, break out of the double-buffer loop.
-                break;
+
+            //limit to match the known batch size of the logger, we know it is taking these strides.
+            let take_count = min_logger_wait.min(peek_a.len() + peek_b.len()).min(poke_a.len() + poke_b.len());
+            let switch_input = peek_a.len();
+            let switch_output = poke_a.len();
+
+            // Loop 1: peek_a to poke_a
+            let end1 = switch_input.min(switch_output).min(take_count);
+            for i in 0..end1 {
+                poke_a[i].write(FizzBuzzMessage::new(peek_a[i]));
             }
-       
+
+            // Loop 2: peek_a to poke_b
+            let start2 = switch_output;
+            let end2 = if switch_output < switch_input {
+                switch_input.min(take_count)
+            } else {
+                start2 // Loop is empty
+            };
+            for i in start2..end2 {
+                poke_b[i - switch_output].write(FizzBuzzMessage::new(peek_a[i]));
+            }
+
+            // Loop 3: peek_b to poke_a
+            let start3 = switch_input;
+            let end3 = if switch_input < switch_output {
+                switch_output.min(take_count)
+            } else {
+                start3 // Loop is empty
+            };
+            for i in start3..end3 {
+                poke_a[i].write(FizzBuzzMessage::new(peek_b[i - switch_input]));
+            }
+
+            // Loop 4: peek_b to poke_b
+            let start4 = switch_input.max(switch_output);
+            let end4 = take_count;
+            for i in start4..end4 {
+                poke_b[i - switch_output].write(FizzBuzzMessage::new(peek_b[i - switch_input]));
+            }
+            
+            
+            assert_eq!(take_count, actor.advance_send_index(&mut logger, take_count).item_count(), "move write position");//#!#//
+            assert_eq!(take_count, actor.advance_take_index(&mut generator, take_count).item_count(), "move read position");//#!#//
+
+
+            state.heartbeats_processed += take_count as u64;
+
+            if state.heartbeats_processed & ((1<<26)-1) == 0 {
+                trace!("Worker: {} heartbeats processed", state.heartbeats_processed);
+            }
+        }
+
     }
 
     // Final shutdown log, reporting all statistics.

@@ -43,14 +43,15 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A
         await_for_all!(actor.wait_periodic(rate),
                        actor.wait_vacant(&mut heartbeat_tx, 1));
 
-        actor.try_send(&mut heartbeat_tx, state.count).expect("unable to send");
-
-        state.count += 1;
-        // Self-terminating behavior allows actors to control application lifecycle.
-        // This pattern is useful for batch jobs, scheduled tasks, or demo applications
-        // that need to terminate after completing their work.
-        if beats == state.count {
-            actor.request_shutdown().await;
+        //if periodic timer tiggers or shutdown happens, we may not have room to send.
+        if actor.try_send(&mut heartbeat_tx, state.count).is_sent() {
+            state.count += 1;
+            // Self-terminating behavior allows actors to control application lifecycle.
+            // This pattern is useful for batch jobs, scheduled tasks, or demo applications
+            // that need to terminate after completing their work.
+            if beats == state.count {
+                actor.request_shutdown().await;
+            }
         }
     }
     Ok(())

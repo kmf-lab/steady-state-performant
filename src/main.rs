@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Build the actor graph with all channels and actors, using the parsed arguments.
     let mut graph = GraphBuilder::default()
+        .with_telemtry_production_rate_ms(200) // slower telemetry frame rate, //##!##//
         .build(cli_args);
 
     // Construct the full actor pipeline and channel topology.
@@ -31,7 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // The system runs until an actor requests shutdown or the timeout is reached.
     // The timeout here is set longer to allow for high-throughput performance testing.
-    graph.block_until_stopped(Duration::from_secs(5))
+    graph.block_until_stopped(Duration::from_secs(20)) //let the large channels drain.
 }
 
 // Actor names for use in graph construction and testing.
@@ -46,13 +47,14 @@ fn build_graph(graph: &mut Graph) {
     // - Percentile-based monitoring for channel fill levels
     // - Real-time average rate tracking
     let channel_builder = graph.channel_builder()
+        // Smoother rates over a longer window
+        .with_compute_refresh_window_floor(Duration::from_secs(4),Duration::from_secs(24))
         // Red alert if channel is >90% full on average (critical congestion)
         .with_filled_trigger(Trigger::AvgAbove(Filled::p90()), AlertColor::Red)
         // Orange alert if channel is >60% full on average (early warning)
         .with_filled_trigger(Trigger::AvgAbove(Filled::p60()), AlertColor::Orange)
         // Track average message rate for each channel
-        .with_avg_rate()
-        .with_avg_filled();
+        .with_avg_rate();
 
     // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
     // - Heartbeat channel: moderate size for timing signals
@@ -101,6 +103,7 @@ fn build_graph(graph: &mut Graph) {
         .build(move |context| {
             actor::generator::run(context, generator_tx.clone(), state.clone())
         },  MemberOf(&mut team));   //#!#//
+    drop(team); // this is when the troupe is finalized and started //#!#//
 
     // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
     let use_double_buffer = true;//#!#//
