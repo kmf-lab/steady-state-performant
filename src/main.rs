@@ -86,21 +86,21 @@ fn build_graph(graph: &mut Graph) {
     // - MemberOf(&mut team): actors are grouped to share a single thread, cooperatively yielding to each other.
     //   This is optimal for lightweight actors or those that coordinate closely (e.g., generator and heartbeat).
     // - SoloAct: actor runs on its own dedicated thread, ideal for CPU-intensive or batch-heavy actors (e.g., worker, logger).
-    let mut team = graph.actor_troupe();
+    let mut team = graph.actor_troupe();                                             //#!#//
 
     // Heartbeat actor: shares a thread with generator (MemberOf team)
     let state = new_state();
     actor_builder.with_name(NAME_HEARTBEAT)
         .build(move |context| {
             actor::heartbeat::run(context, heartbeat_tx.clone(), state.clone())
-        },  MemberOf(&mut team));
+        },  MemberOf(&mut team));   //#!#//
 
     // Generator actor: shares a thread with heartbeat (MemberOf team)
     let state = new_state();
     actor_builder.with_name(NAME_GENERATOR)
         .build(move |context| {
             actor::generator::run(context, generator_tx.clone(), state.clone())
-        },  MemberOf(&mut team));
+        },  MemberOf(&mut team));   //#!#//
 
     // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
     let use_double_buffer = true;//#!#//
