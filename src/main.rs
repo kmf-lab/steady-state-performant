@@ -93,16 +93,16 @@ fn build_graph(graph: &mut Graph) {
     // Heartbeat actor: shares a thread with generator (MemberOf team)
     let state = new_state();
     actor_builder.with_name(NAME_HEARTBEAT)
-        .build(move |context| {
+        .build(move |context| 
             actor::heartbeat::run(context, heartbeat_tx.clone(), state.clone())
-        },  MemberOf(&mut team));   //#!#//
+        ,  MemberOf(&mut team));   //#!#//
 
     // Generator actor: shares a thread with heartbeat (MemberOf team)
     let state = new_state();
     actor_builder.with_name(NAME_GENERATOR)
-        .build(move |context| {
+        .build(move |context|
             actor::generator::run(context, generator_tx.clone(), state.clone())
-        },  MemberOf(&mut team));   //#!#//
+        ,  MemberOf(&mut team));   //#!#//
     drop(team); // this is when the troupe is finalized and started //#!#//
 
     // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
@@ -111,24 +111,24 @@ fn build_graph(graph: &mut Graph) {
     if use_double_buffer {
         let state = new_state();
         actor_builder.with_name(NAME_WORKER)
-            .build(move |context| {
+            .build(move |context| 
                 actor::worker_double_buffer::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())//#!#//
-            }, SoloAct);
+            , SoloAct);
     } else {
         let state = new_state();
         actor_builder.with_name(NAME_WORKER)
-            .build(move |context| {
+            .build(move |context| 
                 actor::worker_zero_copy::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())//#!#//
-            }, SoloAct);
+            , SoloAct);
     }
 
 
     // Logger actor: runs on its own thread (SoloAct) for maximum throughput and isolation
     let state = new_state();
     actor_builder.with_name(NAME_LOGGER)
-        .build(move |context| {
+        .build(move |context|
             actor::logger::run(context, worker_rx.clone(), state.clone())
-        }, SoloAct);
+        , SoloAct);
 }
 
 #[cfg(test)]
