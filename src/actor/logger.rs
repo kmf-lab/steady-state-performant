@@ -109,8 +109,9 @@ fn test_logger() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = start_log_capture();
 
     let mut graph = GraphBuilder::for_testing().build(());
+    let test_capacity = 4096;
     let (fizz_buzz_tx, fizz_buzz_rx) = graph.channel_builder()
-        .with_capacity(4096) // Large capacity for performance
+        .with_capacity(test_capacity) // Large capacity for performance
         .build();
 
     let state = new_state();
@@ -123,17 +124,21 @@ fn test_logger() -> Result<(), Box<dyn std::error::Error>> {
     graph.start();
 
     // Send large batch for performance testing
-    let test_messages: Vec<FizzBuzzMessage> = (0..1000)
+    let test_size = (test_capacity/2) as u64;
+    let test_messages: Vec<FizzBuzzMessage> = (0..test_size)
         .map(FizzBuzzMessage::new)
         .collect();
     fizz_buzz_tx.testing_send_all(test_messages, true);
 
-    sleep(Duration::from_millis(500));
+    sleep(Duration::from_millis(1500));
     graph.request_shutdown();
-    graph.block_until_stopped(Duration::from_secs(1))?;
+    graph.block_until_stopped(Duration::from_secs(2))?;
 
-    // Should see batch processing logs
-    assert_in_logs!(["Logger:"]);
+    // Should see batch processing logs, must appear in order   //#!#//
+    assert_in_logs!(["Logger: 1 messages processed (F:0, B:0, FB:1, V:0)"
+                   , "Logger: 4 messages processed (F:1, B:0, FB:1, V:2)"
+                   , "Logger: 15 messages processed (F:4, B:2, FB:1, V:8)"
+    ]);
 
     Ok(())
 }
