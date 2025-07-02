@@ -13,17 +13,17 @@ pub(crate) struct WorkerState {
 /// It receives heartbeats and generator values, processes them in batches, and sends FizzBuzz messages to the logger.
 pub async fn run(
     actor: SteadyActorShadow,
-    heartbeat: SteadyRx<u64>,
-    generator: SteadyRx<u64>,
-    logger: SteadyTx<FizzBuzzMessage>,
+    heartbeat_rx: SteadyRx<u64>,
+    generator_rx: SteadyRx<u64>,
+    logger_tx: SteadyTx<FizzBuzzMessage>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&heartbeat, &generator], [&logger]),
-        heartbeat,
-        generator,
-        logger,
+        actor.into_spotlight([&heartbeat_rx, &generator_rx], [&logger_tx]),
+        heartbeat_rx,
+        generator_rx,
+        logger_tx,
         state,
     )
         .await
@@ -32,14 +32,14 @@ pub async fn run(
 /// The core logic for the worker actor.
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    heartbeat: SteadyRx<u64>,
-    generator: SteadyRx<u64>,
-    logger: SteadyTx<FizzBuzzMessage>,
+    heartbeat_rx: SteadyRx<u64>,
+    generator_rx: SteadyRx<u64>,
+    logger_tx: SteadyTx<FizzBuzzMessage>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut logger = logger.lock().await;
-    let mut heartbeat = heartbeat.lock().await;
-    let mut generator = generator.lock().await;
+    let mut logger_tx = logger_tx.lock().await;
+    let mut heartbeat_rx = heartbeat_rx.lock().await;
+    let mut generator_rx = generator_rx.lock().await;
 
     // Initialize the actor's state, setting batch_size to half the generator channel's capacity.
     // This ensures that the producer can fill one half while the consumer processes the other.
@@ -47,36 +47,36 @@ async fn internal_behavior<A: SteadyActor>(
         heartbeats_processed: 0,
     }).await;
 
-    let min_generator_wait = generator.capacity()/2;
-    let min_logger_wait = logger.capacity()/2;
+    let min_generator_wait = generator_rx.capacity()/2;
+    let min_logger_wait = logger_tx.capacity()/2;
     let max_latency = Duration::from_millis(30);
 
     // Main processing loop.
     // The actor runs until all input channels are closed and empty, and the output channel is closed.
-    while actor.is_running(||
-        i!(heartbeat.is_closed_and_empty()) &&
-            i!(generator.is_closed_and_empty()) &&
-            i!(logger.mark_closed())
+    while actor.is_running(
+                         || i!(heartbeat_rx.is_closed_and_empty())
+                         && i!(generator_rx.is_closed_and_empty())
+                         && i!(logger_tx.mark_closed())
     ) {
         // Wait for all required conditions:
         // - A periodic timer (to avoid starvation)
         // - At least one heartbeat (to trigger processing)
         let is_clean = await_for_all_or_proceed_upon!(
             actor.wait_periodic(max_latency),
-            actor.wait_avail(&mut heartbeat, 1),
-            actor.wait_avail(&mut generator, min_generator_wait),//#!#//
-            actor.wait_vacant(&mut logger, min_logger_wait)
+            actor.wait_avail(&mut heartbeat_rx, 1),
+            actor.wait_avail(&mut generator_rx, min_generator_wait),//#!#//
+            actor.wait_vacant(&mut logger_tx, min_logger_wait)
         );
 
   
         // Only proceed if a heartbeat is available or if any awaited condition is ready.
         // This ensures we don't leave data stranded in the channel.
-        if actor.try_take(&mut heartbeat).is_some() || !is_clean {
+        if actor.try_take(&mut heartbeat_rx).is_some() || !is_clean {
             state.heartbeats_processed += 1;
 
 
-            let (peek_a, peek_b) = actor.peek_slice(&mut generator);//#!#//
-            let (poke_a, poke_b) = actor.poke_slice(&mut logger);//#!#//
+            let (peek_a, peek_b) = actor.peek_slice(&mut generator_rx);    //#!#//
+            let (poke_a, poke_b) = actor.poke_slice(&mut logger_tx); //#!#//
 
 
             //limit to match the known batch size of the logger, we know it is taking these strides.
@@ -120,8 +120,8 @@ async fn internal_behavior<A: SteadyActor>(
             }
             
             
-            assert_eq!(take_count, actor.advance_send_index(&mut logger, take_count).item_count(), "move write position");//#!#//
-            assert_eq!(take_count, actor.advance_take_index(&mut generator, take_count).item_count(), "move read position");//#!#//
+            assert_eq!(take_count, actor.advance_send_index(&mut logger_tx, take_count).item_count(), "move write position");//#!#//
+            assert_eq!(take_count, actor.advance_take_index(&mut generator_rx, take_count).item_count(), "move read position");//#!#//
 
 
             state.heartbeats_processed += take_count as u64;

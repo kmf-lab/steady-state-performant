@@ -105,10 +105,10 @@ async fn internal_behavior<A: SteadyActor>(
 
     // Main processing loop.
     // The actor runs until all input channels are closed and empty, and the output channel is closed.
-    while actor.is_running(||
-        i!(heartbeat.is_closed_and_empty()) &&
-            i!(generator.is_closed_and_empty()) &&
-            i!(logger.mark_closed())
+    while actor.is_running(
+                           || i!(heartbeat.is_closed_and_empty())
+                           && i!(generator.is_closed_and_empty()) 
+                           && i!(logger.mark_closed())
     ) {
         // Wait for all required conditions:
         // - A periodic timer (to avoid starvation)
@@ -116,10 +116,10 @@ async fn internal_behavior<A: SteadyActor>(
         // - At least half a channel's worth of generator data (for batch efficiency)
         // - Sufficient space in the logger channel for a batch
         let is_clean = await_for_all_or_proceed_upon!(  //#!#//
-            actor.wait_periodic(max_latency),
-            actor.wait_avail(&mut heartbeat, 1),
-            actor.wait_avail(&mut generator, state.batch_size),
-            actor.wait_vacant(&mut logger, state.batch_size)
+                        actor.wait_periodic(max_latency),
+                        actor.wait_avail(&mut heartbeat, 1),
+                        actor.wait_avail(&mut generator, state.batch_size),
+                        actor.wait_vacant(&mut logger, state.batch_size)
         );
 
         // The double-buffering loop: process two slices (halves) before yielding.
@@ -140,7 +140,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                     // Take a slice of generator values into the pre-allocated buffer.
                     // This is a zero-allocation, cache-friendly operation.
-                    let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]).item_count();//#!#//
+                    let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]).item_count();  //#!#//
                     if taken > 0 {
 
                         // Convert the batch of values to FizzBuzz messages.
@@ -153,7 +153,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                         // Send the entire batch to the logger in one operation.
                         // This minimizes synchronization and maximizes throughput.
-                        let sent_count = actor.send_slice(&mut logger, &fizzbuzz_batch).item_count();//#!#//
+                        let sent_count = actor.send_slice(&mut logger, &fizzbuzz_batch).item_count();    //#!#//
 
                         state.values_processed += taken as u64;
                         state.messages_sent += sent_count as u64;
