@@ -106,7 +106,7 @@ fn build_graph(graph: &mut Graph) {
     drop(team); // this is when the troupe is finalized and started //#!#//
 
     // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
-    let use_double_buffer = false;//#!#//
+    let use_double_buffer = true;//#!#//
 
     if use_double_buffer {
         let state = new_state();
