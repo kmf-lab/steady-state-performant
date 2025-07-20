@@ -1,9 +1,14 @@
 [package]
 name = "performant"
-version = "0.1.4"
+version = "0.2.3"
 edition = "2024"
 
 [dependencies]
-steady_state     = "0.2.1"
-clap             = { version = "4.5.40", features = ["derive"] }
+steady_state     = "0.2.3"
+clap             = { version = "4.5.41", features = ["derive"] }
 
+[profile.release]
+opt-level = 3 # optimize for size 'z' speed 3
+lto = true # link time optimization
+codegen-units = 1 # only one codegen unit to reduce binary size
+strip = 'symbols' # strip symbols
