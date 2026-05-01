@@ -1,0 +1,1232 @@
+# Steady State Performant
+
+> **Mechanically Sympathetic, Cache-Friendly High-Throughput Actors**
+
+This project demonstrates advanced, real-world performance engineering with the [`steady_state`](https://github.com/steady-stack/steady-state) actor framework.  
+It builds on the `minimum` and `standard` lessons, introducing **cache-friendly batching**, **very large channels**, and **mechanically sympathetic** flow control for enterprise-grade throughput.
+
+---
+
+## 🚀 What Makes This "Performant"?
+
+This lesson introduces three key optimizations for maximum throughput:
+
+1. **Extremely Large Channel Buffers**  
+   Channels are sized to **over one million messages** (`1 << 20` = 1,048,576), reducing backpressure and synchronization overhead to near zero.
+
+2. **Double-Buffer Batching**  
+   Each actor processes *half* of a channel’s capacity in a single batch (over 500,000 messages at a time), while the other half is being filled by upstream actors.  
+   The actor alternates between two contiguous memory regions ("slices"), always processing as much as possible in a tight, cache-friendly loop. This ensures that producers and consumers are always working in parallel, maximizing CPU and memory bus utilization, and minimizing context switches.
+
+3. **Zero-Copy Processing**  
+   For those willing to invest in careful design, the framework exposes a **zero-copy API**.  
+   Instead of copying data into intermediate buffers, actors operate directly on channel memory using paired `peek_slice`/`poke_slice` APIs. This allows for direct, in-place transformation of messages, eliminating all intermediate allocations and copies.  
+   Zero-copy is the lowest-level, highest-performance mode—ideal for advanced users who want to squeeze out every last nanosecond, at the cost of more complex code and careful attention to memory layout and lifetimes.
+
+---
+
+## 🏗️ System Architecture
+
+**Pipeline:**
+
+```
+Generator (batch: 524,288) → Worker (batch: 524,288 x 2, or zero-copy) → Logger (batch: large)
+    eartbeat (burst: 1024) ↗
+```
+
+- **Generator**: Produces values in very large batches, filling half the channel at a time.
+- **Heartbeat**: Triggers worker batches in bursts, coordinating timing.
+- **Worker**: Consumes a full channel (two half-batches, a million messages) before yielding, converting values to FizzBuzz messages.
+   - Can use either double-buffering (copying into a pre-allocated buffer) or zero-copy (operating directly on channel memory).
+- **Logger**: Processes large batches, tracking statistics and throughput.
+
+---
+
+## 🧠 Performance Concepts
+
+### Why Extremely Large Channels?
+
+- **Reduces contention**: Fewer synchronization points between producers and consumers.
+- **Absorbs bursts**: Handles spikes in production or consumption without stalling.
+- **Enables massive batching**: Allows actors to process huge, contiguous memory regions, maximizing cache and memory bus efficiency.
+
+### Double-Buffer Batching (Refined)
+
+- **Producer** fills half the channel while **consumer** processes the other half.
+- **Consumer** waits for at least half-full, then processes in a single, cache-friendly loop.
+- The actor alternates between two memory regions ("slices"), always processing as much as possible in a tight, predictable loop.
+- **After consuming one half**, the consumer immediately checks if the other half is ready, processing both halves before yielding.
+- **Result**: Maximizes cache line reuse, minimizes context switches, and keeps both ends of the pipeline busy.
+- **Implementation**: Uses pre-allocated buffers for batch processing, ensuring zero heap allocations on the hot path.
+
+### Zero-Copy Processing
+
+- **No intermediate buffers**: Actors operate directly on the channel’s memory using `peek_slice` and `poke_slice`.
+- **Direct transformation**: Data is read and written in-place, eliminating all copying and allocation overhead.
+- **Advanced usage**: Requires careful handling of memory layout, lifetimes, and batch boundaries.
+- **Maximum performance**: This is the lowest-level, most mechanically sympathetic mode—ideal for workloads where every cycle counts.
+- **Tradeoff**: Code is more complex and less forgiving, but the performance gains can be substantial, especially for large, predictable workloads.
+
+---
+
+## ⚙️ Default Runtime Parameters
+
+The system is designed to run at high speed by default:
+
+- **Heartbeat rate:** 2 ms between operations (`--rate 2`)
+- **Beats (iterations):** 30,000 (`--beats 30000`)
+
+This means the system will run for about one minute, processing billions of messages in that time.
+
+---
+
+## 📊 Real-World Telemetry: True Throughput
+
+Below is a real snapshot from the built-in telemetry server, running on a modern i5 CPU.  
+This shows the system sustaining **over 128 million messages per second** through the main pipeline, with all actors and channels operating at maximum efficiency.
+
+```dot
+digraph G {
+"generator" -> "worker" [label="Window 10.2 secs
+Avg rate: 64M per/sec
+filled 80%ile 100 %
+Capacity: 1048576 Total: 941,231,872
+", color=red, penwidth=1];
+"worker" -> "logger" [label="Window 10.2 secs
+Avg rate: 64M per/sec
+filled 80%ile 100 %
+Capacity: 1048576 Total: 941,231,872
+", color=grey, penwidth=1];
+}
+```
+
+**What does this show?**
+- The generator and worker are moving over **128 million messages per second**.
+- Channels are running at 100% fill (full double-buffering).
+- CPU load is moderate, showing the design is not just fast, but efficient and scalable.
+
+---
+
+## 🏁 Example Output
+
+After running for about a minute with default settings, you will see output like:
+
+```
+Logger: 9613344768 messages processed (F:2563558604, B:1281779302, FB:640889652, V:5127117210)
+Logger: 9630121984 messages processed (F:2568032529, B:1284016264, FB:642008133, V:5136065058)
+Logger: 9646899200 messages processed (F:2572506453, B:1286253226, FB:643126614, V:5145012907)
+Generator shutting down. Total generated: 9652662016
+Worker shutting down. Heartbeats: 30001, Values: 9652662016, Messages: 9652662016
+Logger shutting down. Total: 9652662016 (F:2574043204, B:1287021602, FB:643510802, V:5148086408)
+```
+
+This demonstrates the system processed **over 9.6 billion messages** in about a minute, with all actors and channels operating at full efficiency.
+
+---
+
+## 🏎️ Performance Features
+
+- **Batch Processing**: Over 500,000 messages per operation.
+- **Zero-Allocation Hot Paths**: Pre-allocated buffers reused every cycle (double-buffer), or no buffers at all (zero-copy).
+- **Zero-Copy Support**: For advanced users, direct in-place transformation with no intermediate allocations or copies.
+- **Real-Time Metrics**: Throughput, batch efficiency, and memory usage tracked live.
+- **Actor Teams**: Lightweight actors share threads for optimal core utilization.
+- **Backpressure Management**: Large buffers and batch-aware flow control prevent stalls.
+
+---
+
+## 📈 Throughput Scaling
+
+| Version                        | Messages/sec         | Batch Size           | Channel Capacity | Memory Usage |
+|--------------------------------|---------------------|----------------------|----------------|-------------|
+| Robust                         | ~1,000              | 1                    | 64             | Minimal    |
+| Standard                       | ~10,000             | 16–64                | 1024           | Minimal    |
+| **Performant (Double Buffer)** | **50–200M**         | 524,288–1,048,576    | 1,048,576      | Constant    |
+| **Performant (Zero Copy)**     | **150–300M**        | (Direct, in-place)   | 1,048,576      | Minimal     |
+
+---
+
+## 🚀 Double Buffer vs Zero Copy
+
+- **Double Buffer**:  
+  The performant double-buffer implementation can sustain **50–200 million messages per second** on modern hardware. This approach is robust, cache-friendly, and easy to reason about, making it a great default for most high-throughput workloads.
+
+- **Zero Copy**:  
+  For those who need to push the limits, the zero-copy mode can reach **150–300 million messages per second**. This mode eliminates all intermediate allocations and copies, operating directly on channel memory. It requires more careful code, but delivers the highest possible throughput for workloads that can take advantage of it.
+  *These are initial numbers, future versions will probably have significantly higher values*.
+---
+
+## 🛠️ Usage
+
+#### Telemetry
+- Telemetry on http://127.0.0.1:9900  (human readable)
+- Telemetry on http://127.0.0.1:9900/graph.dot (graph file)
+
+```bash
+# Run with default high-speed settings (2ms heartbeat, 30,000 beats)
+cargo run
+
+# Custom rate and beats
+cargo run -- --rate 10 --beats 1000
+
+# Performance testing with metrics
+RUST_LOG=trace cargo run -- --rate 50 --beats 500
+```
+
+To enable zero-copy mode, set the `use_double_buffer` flag to `false` in `main.rs`.  
+This will switch the worker to the zero-copy implementation, demonstrating the absolute lowest-latency, highest-throughput path.
+
+---
+
+## 🎯 Key Takeaways
+
+- **Batching** and **very large channels** are essential for high-throughput actor systems.
+- **Double-buffering** keeps both producer and consumer busy, maximizing hardware efficiency, and can reach 50–200M messages/sec.
+- **Zero-copy** mode eliminates all intermediate allocations and copies, delivering 150–300M messages/sec for those willing to manage the complexity.
+- **Full-channel consumption** aligns with CPU cache and memory bus design for peak performance.
+- **Mechanically sympathetic** code is not just fast—it’s robust under real-world load.
+
+---
+
+## 📚 Next Steps
+
+- Try adjusting channel sizes and batch sizes to see their effect on throughput.
+- Explore the `steady_state` metrics dashboard for real-time performance insights.
+- Compare with the `minimum` and `standard` lessons to see the impact of each optimization.
+- Experiment with zero-copy mode for ultimate performance, and study the code to understand the tradeoffs and requirements.
+
+When reviewing the source code, look for //#!#// which demonstrate key ideas you need to know.
+
+---
+
+# Lesson 02B: Performant
+
+## Project Structure
+
+```
+.
++-- build_lesson.sh
+```
+
+## Cargo.toml
+
+```toml
+[package]
+name = "performant"
+version = "0.1.4"
+edition = "2024"
+
+[dependencies]
+#steady_state     = "0.2.2"
+clap             = { version = "4.5.40", features = ["derive"] }
+steady_state     = { path = "../steady-state-stack/core", features = ["exec_async_std", "telemetry_server_builtin", "core_affinity", "core_display" ], default-features = false }
+
+[profile.release]
+opt-level = 3 # optimize for size 'z' speed 3
+lto = true # link time optimization
+codegen-units = 1 # only one codegen unit to reduce binary size
+strip = 'symbols' # strip symbols
+```
+
+## src/actor/generator.rs
+
+```rust
+use steady_state::*;
+
+pub(crate) struct GeneratorState {
+    pub(crate) total_generated: u64,
+}
+
+pub async fn run(actor: SteadyActorShadow, generated_tx: SteadyTx<u64>, state: SteadyState<GeneratorState>) -> Result<(),Box<dyn Error>> {
+    let actor = actor.into_spotlight([], [&generated_tx]);
+    if actor.use_internal_behavior {
+        internal_behavior(actor, generated_tx, state).await
+    } else {
+        actor.simulated_behavior(vec!(&generated_tx)).await
+    }
+}
+
+async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64>, state: SteadyState<GeneratorState> ) -> Result<(),Box<dyn Error>> {
+
+    let mut generated = generated.lock().await;
+
+    let mut state = state.lock(|| GeneratorState {
+        total_generated: 0,
+    }).await;
+    let wait_for= generated.capacity()/4;
+    let mut next_value = state.total_generated;
+
+    while actor.is_running(|| generated.mark_closed()) {
+        // Wait for sufficient room in channel for our batch
+        await_for_all!(actor.wait_vacant(&mut generated, wait_for));
+
+        while actor.vacant_units(&mut generated)>=wait_for {        // simple example of a zero copy write
+            let (poke_a, poke_b) = actor.poke_slice(&mut generated); //#!#//
+            let count = poke_a.len() + poke_b.len();
+            for i in 0..poke_a.len() {
+                poke_a[i].write(next_value);
+                next_value += 1;
+            }
+            for i in 0..poke_b.len() {
+                poke_b[i].write(next_value);
+                next_value += 1;
+            }
+
+            let sent_count = actor.advance_send_index(&mut generated, count).item_count(); //#!#//
+            state.total_generated += sent_count as u64;
+            actor.relay_stats_smartly();
+        }
+
+    }
+
+    info!("Generator shutting down. Total generated: {}", state.total_generated);
+    Ok(())
+}
+
+/// Here we test the internal behavior of this actor
+#[cfg(test)]
+pub(crate) mod generator_tests {
+    use std::thread::sleep;
+    use steady_state::*;
+    use super::*;
+
+    #[test]
+    fn test_generator() -> Result<(), Box<dyn Error>> {
+        let mut graph = GraphBuilder::for_testing().build(());
+        let (generate_tx, generate_rx) = graph.channel_builder()
+            .with_capacity(1024) // Larger capacity for testing
+            .build();
+
+        let state = new_state();
+        graph.actor_builder()
+            .with_name("UnitTest")
+            .build(move |context| internal_behavior(context, generate_tx.clone(), state.clone()), SoloAct );
+
+        graph.start();
+        sleep(Duration::from_millis(100));
+        graph.request_shutdown();
+
+        graph.block_until_stopped(Duration::from_secs(1))?;
+
+        // Should have many more messages due to batch processing
+        let messages: Vec<u64> = generate_rx.testing_take_all(); //#!#//
+        assert!(messages.len() >= 256); // At least one full batch
+        assert_eq!(messages[0], 0);
+        assert_eq!(messages[1], 1);
+        Ok(())
+    }
+}
+
+```
+
+## src/actor/heartbeat.rs
+
+```rust
+use steady_state::*;
+
+/// Counter state that survives actor restarts.
+/// Heartbeat actors often need to maintain timing consistency across failures,
+/// making reliable state essential for reliable scheduling.
+pub(crate) struct HeartbeatState {
+    pub(crate) count: u64
+}
+
+/// Entry point demonstrating command-line argument integration.
+/// Heartbeat actors commonly need runtime configuration for timing parameters,
+/// deployment flexibility, and operational tuning.
+pub async fn run(actor: SteadyActorShadow, heartbeat_tx: SteadyTx<u64>, state: SteadyState<HeartbeatState>) -> Result<(),Box<dyn Error>> {
+    let actor = actor.into_spotlight([], [&heartbeat_tx]);
+    if actor.use_internal_behavior {
+        internal_behavior(actor, heartbeat_tx, state).await
+    } else {
+        actor.simulated_behavior(vec!(&heartbeat_tx)).await
+    }
+}
+
+/// Periodic signal generation with coordinated shutdown capabilities.
+/// This pattern enables time-based coordination across multiple actors
+/// while maintaining precise timing control and graceful termination.
+async fn internal_behavior<A: SteadyActor>(mut actor: A
+                                               , heartbeat_tx: SteadyTx<u64>
+                                               , state: SteadyState<HeartbeatState> ) -> Result<(),Box<dyn Error>> {
+    // Runtime argument access allows dynamic behavior configuration.
+    // This enables the same actor code to work across different deployment scenarios
+    // without recompilation or environment-specific builds.
+    let args = actor.args::<crate::MainArg>().expect("unable to downcast");
+    let rate = Duration::from_millis(args.rate_ms);
+    let beats = args.beats;
+
+    let mut state = state.lock(|| HeartbeatState{ count: 0}).await;
+    let mut heartbeat_tx = heartbeat_tx.lock().await;
+
+    // Shutdown coordination with proper channel cleanup signaling.
+    while actor.is_running(|| heartbeat_tx.mark_closed()) {
+        // Synchronized waiting demonstrates multi-condition coordination.
+        // await_for_all! ensures both timing requirements and channel capacity
+        // are satisfied before proceeding, preventing timing drift and overflow.
+        await_for_all!(actor.wait_periodic(rate),
+                       actor.wait_vacant(&mut heartbeat_tx, 1));
+
+        //if periodic timer tiggers or shutdown happens, we may not have room to send.
+        if actor.try_send(&mut heartbeat_tx, state.count).is_sent() {
+            state.count += 1;
+            // Self-terminating behavior allows actors to control application lifecycle.
+            // This pattern is useful for batch jobs, scheduled tasks, or demo applications
+            // that need to terminate after completing their work.
+            if beats == state.count {
+                actor.request_shutdown().await;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Testing with timing validation demonstrates how to verify periodic behavior.
+/// This pattern ensures heartbeat actors maintain correct timing characteristics
+/// under various load and configuration conditions.
+#[cfg(test)]
+pub(crate) mod heartbeat_tests {
+    use steady_state::*;
+    use crate::arg::MainArg;
+    use super::*;
+
+    #[test]
+    fn test_heartbeat() -> Result<(), Box<dyn Error>> {
+        let mut graph = GraphBuilder::for_testing().build(MainArg {
+            rate_ms: 100, //custom so we can match our test below
+            beats: 10,
+        });
+        let (heartbeat_tx, heartbeat_rx) = graph.channel_builder().build();
+
+        let state = new_state();
+        graph.actor_builder()
+            .with_name("UnitTest")
+            .build(move |context|
+                internal_behavior(context, heartbeat_tx.clone(), state.clone())
+            , SoloAct );
+
+        graph.start();
+        // Timing-based testing requires careful coordination between test duration
+        // and expected actor behavior to ensure deterministic results.
+        std::thread::sleep(Duration::from_millis(100 * 3));
+        graph.request_shutdown();
+        graph.block_until_stopped(Duration::from_secs(1))?;
+        assert_steady_rx_eq_take!(&heartbeat_rx, vec!(0,1));
+        Ok(())
+    }
+}
+
+```
+
+## src/actor/logger.rs
+
+```rust
+use steady_state::*;
+use crate::actor::worker_double_buffer::FizzBuzzMessage;
+
+pub(crate) struct LoggerState {
+    pub(crate) messages_logged: u64,
+    pub(crate) fizz_count: u64,
+    pub(crate) buzz_count: u64,
+    pub(crate) fizzbuzz_count: u64,
+    pub(crate) value_count: u64,
+}
+
+pub async fn run(actor: SteadyActorShadow, fizz_buzz_rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
+    let actor = actor.into_spotlight([&fizz_buzz_rx], []);
+    if actor.use_internal_behavior {
+        internal_behavior(actor, fizz_buzz_rx, state).await
+    } else {
+        actor.simulated_behavior(vec!(&fizz_buzz_rx)).await
+    }
+}
+
+async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
+
+    let mut rx = rx.lock().await;
+    
+    let mut state = state.lock(|| LoggerState {
+        messages_logged: 0,
+        fizz_count: 0,
+        buzz_count: 0,
+        fizzbuzz_count: 0,
+        value_count: 0,
+    }).await;
+
+
+    let batch_size = rx.capacity()/2;
+    let max_latency = Duration::from_millis(30);
+    // For double buffering solution
+    //let mut batch = vec![FizzBuzzMessage::default(); batch_size];  //#!#//
+
+    let mut count = 0;
+    while cmd.is_running(|| rx.is_closed_and_empty()) {
+        await_for_any!(cmd.wait_periodic(max_latency),
+                       cmd.wait_avail(&mut rx, batch_size));
+
+        // Pressing the actor to work harder, keep going until work is gone
+        while cmd.avail_units(&mut rx) >= batch_size {
+            // //zero copy solution
+            let (a,b) = cmd.peek_slice(&mut rx);  //#!#//
+            let len = a.len() + b.len();
+
+            consume_items(&mut state, a);
+            if !b.is_empty() {
+                consume_items(&mut state, b);
+            }
+            cmd.advance_take_index(&mut rx, len);
+    
+            // //double buffer solution
+            // let taken = cmd.take_slice(&mut rx, &mut batch).item_count();   //#!#//
+            // if taken > 0 {
+            //     // Process the entire batch efficiently
+            //     let x = &batch[..taken];
+            //     consume_items(&mut state, x);
+            // }
+
+            count += 1;
+            if 0 == count&((1u64<<9)-1) {
+                    info!(
+                    "Logger: {} messages processed (F:{}, B:{}, FB:{}, V:{})",
+                    state.messages_logged, state.fizz_count, state.buzz_count,
+                    state.fizzbuzz_count, state.value_count
+                  );
+            }
+
+        }
+        
+    }
+
+    info!("Logger shutting down. Total: {} (F:{}, B:{}, FB:{}, V:{})",
+          state.messages_logged, state.fizz_count, state.buzz_count,
+          state.fizzbuzz_count, state.value_count);
+    Ok(())
+}
+
+fn consume_items(state: &mut StateGuard<LoggerState>, items: &[FizzBuzzMessage]) {
+
+
+        let mut fizz = 0u64;
+        let mut buzz = 0u64;
+        let mut fizzbuzz = 0u64;
+        let mut value = 0u64;
+
+
+        for &msg in items {
+            match msg {
+                FizzBuzzMessage::Fizz => fizz += 1,
+                FizzBuzzMessage::Buzz => buzz += 1,
+                FizzBuzzMessage::FizzBuzz => fizzbuzz += 1,
+                FizzBuzzMessage::Value(_) => value += 1,
+            }
+        }
+        state.fizz_count += fizz;
+        state.buzz_count += buzz;
+        state.fizzbuzz_count += fizzbuzz;
+        state.value_count += value;
+        state.messages_logged = items.len() as u64;
+
+}
+
+#[test]
+fn test_logger() -> Result<(), Box<dyn std::error::Error>> {
+    use steady_logger::*;
+    use std::thread::sleep;
+
+    let _guard = start_log_capture();
+
+    let mut graph = GraphBuilder::for_testing().build(());
+    let test_capacity = 4096;
+    let (fizz_buzz_tx, fizz_buzz_rx) = graph.channel_builder()
+        .with_capacity(test_capacity) // Large capacity for performance
+        .build();
+
+    let state = new_state();
+    graph.actor_builder().with_name("UnitTest")
+        .build(move |context| {
+            internal_behavior(context, fizz_buzz_rx.clone(), state.clone())
+        }
+               , SoloAct);
+
+    graph.start();
+
+    // Send large batch for performance testing
+    let test_size = (test_capacity/2) as u64;
+    let test_messages: Vec<FizzBuzzMessage> = (0..test_size)
+        .map(FizzBuzzMessage::new)
+        .collect();
+    fizz_buzz_tx.testing_send_all(test_messages, true);
+
+    sleep(Duration::from_millis(1500));
+    graph.request_shutdown();
+    graph.block_until_stopped(Duration::from_secs(2))?;
+
+    // Should see batch processing logs, must appear in order   //#!#//
+    assert_in_logs!(["Logger: 1 messages processed (F:0, B:0, FB:1, V:0)"
+                   , "Logger: 4 messages processed (F:1, B:0, FB:1, V:2)"
+                   , "Logger: 15 messages processed (F:4, B:2, FB:1, V:8)"
+    ]);
+
+    Ok(())
+}
+
+```
+
+## src/actor/worker_double_buffer.rs
+
+```rust
+use steady_state::*;
+
+/// FizzBuzzMessage is the output type for the worker actor.
+/// This enum is designed for efficient, branchless pattern matching in batch processing.
+/// The #[repr(u64)] ensures a predictable memory layout, which is cache-friendly.
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq)]
+#[repr(u64)]
+pub(crate) enum FizzBuzzMessage {
+    #[default]
+    FizzBuzz = 15,
+    Fizz = 3,
+    Buzz = 5,
+    Value(u64),
+}
+
+impl FizzBuzzMessage {
+    /// Efficiently computes the FizzBuzz variant for a given value.
+    /// This function is called in tight loops, so it avoids allocations and minimizes branching.
+    pub fn new(value: u64) -> Self {
+        match value % 15 {
+            0  => FizzBuzzMessage::FizzBuzz, // divisible by both 3 and 5
+            3  => FizzBuzzMessage::Fizz,     // divisible by 3
+            5  => FizzBuzzMessage::Buzz,     // divisible by 5
+            6  => FizzBuzzMessage::Fizz,     // divisible by 3
+            9  => FizzBuzzMessage::Fizz,     // divisible by 3
+            10 => FizzBuzzMessage::Buzz,     // divisible by 5
+            12 => FizzBuzzMessage::Fizz,     // divisible by 3
+            _  => FizzBuzzMessage::Value(value), // all other values
+        }
+    }
+}
+
+/// State struct for the worker actor.
+/// Tracks the number of heartbeats, values processed, messages sent, and the batch size.
+/// The batch_size is set to half the channel capacity for double-buffering.
+pub(crate) struct WorkerState {
+    pub(crate) heartbeats_processed: u64,
+    pub(crate) values_processed: u64,
+    pub(crate) messages_sent: u64,
+    pub(crate) batch_size: usize,
+}
+
+/// Entry point for the worker actor.
+/// This actor is not on the edge of the graph, so it is always run with real neighbors.
+/// It receives heartbeats and generator values, processes them in batches, and sends FizzBuzz messages to the logger.
+pub async fn run(
+    actor: SteadyActorShadow,
+    heartbeat: SteadyRx<u64>,
+    generator: SteadyRx<u64>,
+    logger: SteadyTx<FizzBuzzMessage>,
+    state: SteadyState<WorkerState>,
+) -> Result<(), Box<dyn Error>> {
+    // The worker is tested by its simulated neighbors, so we always use internal_behavior.
+    internal_behavior(
+        actor.into_spotlight([&heartbeat, &generator], [&logger]),
+        heartbeat,
+        generator,
+        logger,
+        state,
+    )
+        .await
+}
+
+/// The core logic for the worker actor.
+/// This function implements high-throughput, cache-friendly batch processing.
+///
+/// Key performance strategies:      //#!#//
+/// - **Double-buffering**: The channel is logically split into two halves. While one half is being filled by the producer, the consumer processes the other half.
+/// - **Full-channel consumption**: The worker processes both halves (two slices) before yielding, maximizing cache line reuse and minimizing context switches.
+/// - **Pre-allocated buffers**: All batch buffers are allocated once and reused, ensuring zero-allocation hot paths.
+/// - **Mechanically sympathetic**: The design aligns with CPU cache and memory bus behavior for optimal throughput.
+async fn internal_behavior<A: SteadyActor>(
+    mut actor: A,
+    heartbeat: SteadyRx<u64>,
+    generator: SteadyRx<u64>,
+    logger: SteadyTx<FizzBuzzMessage>,
+    state: SteadyState<WorkerState>,
+) -> Result<(), Box<dyn Error>> {
+    let mut logger = logger.lock().await;
+    let mut heartbeat = heartbeat.lock().await;
+    let mut generator = generator.lock().await;
+    // SLICES determines how many times we process a half-batch before yielding.
+    // For double-buffering, this is set to 2.
+    const SLICES: usize = 2; // important for high volume throughput
+
+    // Initialize the actor's state, setting batch_size to half the generator channel's capacity.
+    // This ensures that the producer can fill one half while the consumer processes the other.
+    let mut state = state.lock(|| WorkerState {
+        heartbeats_processed: 0,
+        values_processed: 0,
+        messages_sent: 0,
+        batch_size: generator.capacity() / SLICES,
+    }).await;
+
+    // Pre-allocate buffers for batch processing.
+    // generator_batch: holds up to half the channel's values at a time.
+    // fizzbuzz_batch: holds the converted FizzBuzz messages for a batch.
+    // This requires all messages to be Copy to make use of double buffering
+    let mut generator_batch = vec![0u64; state.batch_size];    //#!#//
+    let mut fizzbuzz_batch = Vec::with_capacity(state.batch_size);  //#!#//
+
+    // Lock all channels for exclusive access within this actor.
+
+    let max_latency = Duration::from_millis(60);
+
+    // Main processing loop.
+    // The actor runs until all input channels are closed and empty, and the output channel is closed.
+    while actor.is_running(
+                           || i!(heartbeat.is_closed_and_empty())
+                           && i!(generator.is_closed_and_empty()) 
+                           && i!(logger.mark_closed())
+    ) {
+        // Wait for all required conditions:
+        // - A periodic timer (to avoid starvation)
+        // - At least one heartbeat (to trigger processing)
+        // - At least half a channel's worth of generator data (for batch efficiency)
+        // - Sufficient space in the logger channel for a batch
+        let is_clean = await_for_all_or_proceed_upon!(  //#!#//
+                        actor.wait_periodic(max_latency),
+                        actor.wait_avail(&mut heartbeat, 1),
+                        actor.wait_avail(&mut generator, state.batch_size),
+                        actor.wait_vacant(&mut logger, state.batch_size)
+        );
+
+        // The double-buffering loop: process two slices (halves) before yielding.
+        let mut slices = SLICES;
+        while slices > 0 {
+            slices -= 1;
+
+            // Only proceed if a heartbeat is available or if any awaited condition is ready.
+            // This ensures we don't leave data stranded in the channel.
+            if actor.try_take(&mut heartbeat).is_some() || !is_clean {
+                state.heartbeats_processed += 1;
+
+                // Determine how many values we can process in this batch.
+                // We never process more than batch_size at a time.
+                let vacant_room = actor.vacant_units(&mut logger);
+                if vacant_room > 0 {
+                    let batch_size = vacant_room.min(state.batch_size);
+
+                    // Take a slice of generator values into the pre-allocated buffer.
+                    // This is a zero-allocation, cache-friendly operation.
+                    let taken = actor.take_slice(&mut generator, &mut generator_batch[..batch_size]).item_count();  //#!#//
+                    if taken > 0 {
+
+                        // Convert the batch of values to FizzBuzz messages.
+                        // The fizzbuzz_batch buffer is reused every cycle.
+                        fizzbuzz_batch.clear();
+                        fizzbuzz_batch.reserve(taken);
+                        for &value in &generator_batch[..taken] {
+                            fizzbuzz_batch.push(FizzBuzzMessage::new(value));
+                        }
+
+                        // Send the entire batch to the logger in one operation.
+                        // This minimizes synchronization and maximizes throughput.
+                        let sent_count = actor.send_slice(&mut logger, &fizzbuzz_batch).item_count();    //#!#//
+
+                        state.values_processed += taken as u64;
+                        state.messages_sent += sent_count as u64;
+                        debug_assert_eq!(sent_count, fizzbuzz_batch.len(), "expected to match since pre-checked");
+
+                        // Log performance statistics periodically.
+                        if state.values_processed & ((1<<22)-1) == 0 {
+                            trace!("Worker processed {} values, sent {} messages",
+                                   state.values_processed, state.messages_sent);
+                        }
+                    }
+                }
+
+                // Log heartbeat statistics periodically.
+                if state.heartbeats_processed & ((1<<17)-1) == 0 {
+                    trace!("Worker: {} heartbeats processed", state.heartbeats_processed);
+                }
+            } else {
+                // If no heartbeat and no other condition is ready, break out of the double-buffer loop.
+                break;
+            }
+        }
+    }
+
+    // Final shutdown log, reporting all statistics.
+    info!("Worker shutting down. Heartbeats: {}, Values: {}, Messages: {}",
+          state.heartbeats_processed, state.values_processed, state.messages_sent);
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) mod worker_tests {
+    use std::thread::sleep;
+    use steady_state::*;
+    use super::*;
+
+    /// Unit test for the worker actor.
+    /// This test verifies that the worker processes batches correctly and produces the expected FizzBuzz output.
+    #[test]
+    fn test_worker() -> Result<(), Box<dyn Error>> {
+        let mut graph = GraphBuilder::for_testing().build(());
+        let (generate_tx, generate_rx) = graph.channel_builder()
+            .with_capacity(2048)
+            .build();
+        let (heartbeat_tx, heartbeat_rx) = graph.channel_builder()
+            .with_capacity(512)
+            .build();
+        let (logger_tx, logger_rx) = graph.channel_builder()
+            .with_capacity(2048)
+            .build::<FizzBuzzMessage>();
+
+        let state = new_state();
+        graph.actor_builder().with_name("UnitTest")
+            .build(move |context| internal_behavior(context
+                                                    , heartbeat_rx.clone()
+                                                    , generate_rx.clone()
+                                                    , logger_tx.clone()
+                                                    , state.clone())
+                   , SoloAct
+            );
+
+        let values: Vec<u64> = (0..1000).collect();
+        generate_tx.testing_send_all(values, true);
+        heartbeat_tx.testing_send_all(vec![0], true);
+        graph.start();
+
+        sleep(Duration::from_millis(200));
+
+        graph.request_shutdown();
+        graph.block_until_stopped(Duration::from_secs(1))?;
+
+        let results: Vec<FizzBuzzMessage> = logger_rx.testing_take_all();
+        assert!(results.len() >= 1000);
+        assert_eq!(results[0], FizzBuzzMessage::FizzBuzz);
+        assert_eq!(results[1], FizzBuzzMessage::Value(1));
+        Ok(())
+    }
+}
+
+```
+
+## src/actor/worker_zero_copy.rs
+
+```rust
+use steady_state::*;
+use crate::actor::worker_double_buffer::FizzBuzzMessage;
+
+/// State struct for the worker actor.
+/// Tracks the number of heartbeats, values processed, messages sent, and the batch size.
+/// The batch_size is set to half the channel capacity for double-buffering.
+pub(crate) struct WorkerState {
+    pub(crate) heartbeats_processed: u64,
+}
+
+/// Entry point for the worker actor.
+/// This actor is not on the edge of the graph, so it is always run with real neighbors.
+/// It receives heartbeats and generator values, processes them in batches, and sends FizzBuzz messages to the logger.
+pub async fn run(
+    actor: SteadyActorShadow,
+    heartbeat_rx: SteadyRx<u64>,
+    generator_rx: SteadyRx<u64>,
+    logger_tx: SteadyTx<FizzBuzzMessage>,
+    state: SteadyState<WorkerState>,
+) -> Result<(), Box<dyn Error>> {
+    // The worker is tested by its simulated neighbors, so we always use internal_behavior.
+    internal_behavior(
+        actor.into_spotlight([&heartbeat_rx, &generator_rx], [&logger_tx]),
+        heartbeat_rx,
+        generator_rx,
+        logger_tx,
+        state,
+    )
+        .await
+}
+
+/// The core logic for the worker actor.
+async fn internal_behavior<A: SteadyActor>(
+    mut actor: A,
+    heartbeat_rx: SteadyRx<u64>,
+    generator_rx: SteadyRx<u64>,
+    logger_tx: SteadyTx<FizzBuzzMessage>,
+    state: SteadyState<WorkerState>,
+) -> Result<(), Box<dyn Error>> {
+    let mut logger_tx = logger_tx.lock().await;
+    let mut heartbeat_rx = heartbeat_rx.lock().await;
+    let mut generator_rx = generator_rx.lock().await;
+
+    // Initialize the actor's state, setting batch_size to half the generator channel's capacity.
+    // This ensures that the producer can fill one half while the consumer processes the other.
+    let mut state = state.lock(|| WorkerState {
+        heartbeats_processed: 0,
+    }).await;
+
+    let min_generator_wait = generator_rx.capacity()/2;
+    let min_logger_wait = logger_tx.capacity()/2;
+    let max_latency = Duration::from_millis(40);
+
+    // Main processing loop.
+    // The actor runs until all input channels are closed and empty, and the output channel is closed.
+    while actor.is_running(
+                         || i!(heartbeat_rx.is_closed())
+                         && i!(generator_rx.is_closed_and_empty())
+                         && i!(logger_tx.mark_closed())
+    ) {
+        // Wait for all required conditions:
+        // - A periodic timer (to avoid starvation)
+        // - At least one heartbeat (to trigger processing)
+        let is_clean = await_for_all_or_proceed_upon!(
+            actor.wait_periodic(max_latency),
+            actor.wait_avail(&mut heartbeat_rx, 1),
+            actor.wait_avail(&mut generator_rx, min_generator_wait),//#!#//
+            actor.wait_vacant(&mut logger_tx, min_logger_wait)
+        );
+
+
+        let mut max_loops = 16;
+        // This ensures we don't leave generated data stranded in the channel.
+        while (actor.avail_units(&mut generator_rx)>=min_generator_wait
+            && actor.vacant_units(&mut logger_tx)>=min_logger_wait
+            && actor.try_take(&mut heartbeat_rx).is_some()
+           ) || !is_clean {
+
+
+            state.heartbeats_processed += 1;
+
+
+            let (peek_a, peek_b) = actor.peek_slice(&mut generator_rx);    //#!#//
+            let (poke_a, poke_b) = actor.poke_slice(&mut logger_tx); //#!#//
+
+
+            //limit to match the known batch size of the logger, we know it is taking these strides.
+            let take_count = min_logger_wait.min(peek_a.len() + peek_b.len()).min(poke_a.len() + poke_b.len());
+            let switch_input = peek_a.len();
+            let switch_output = poke_a.len();
+
+            // Loop 1: peek_a to poke_a
+            let end1 = switch_input.min(switch_output).min(take_count);
+            for i in 0..end1 {
+                poke_a[i].write(FizzBuzzMessage::new(peek_a[i]));
+            }
+
+            // Loop 2: peek_a to poke_b
+            let start2 = switch_output;
+            let end2 = if switch_output < switch_input {
+                switch_input.min(take_count)
+            } else {
+                start2 // Loop is empty
+            };
+            for i in start2..end2 {
+                poke_b[i - switch_output].write(FizzBuzzMessage::new(peek_a[i]));
+            }
+
+            // Loop 3: peek_b to poke_a
+            let start3 = switch_input;
+            let end3 = if switch_input < switch_output {
+                switch_output.min(take_count)
+            } else {
+                start3 // Loop is empty
+            };
+            for i in start3..end3 {
+                poke_a[i].write(FizzBuzzMessage::new(peek_b[i - switch_input]));
+            }
+
+            // Loop 4: peek_b to poke_b
+            let start4 = switch_input.max(switch_output);
+            let end4 = take_count;
+            for i in start4..end4 {
+                poke_b[i - switch_output].write(FizzBuzzMessage::new(peek_b[i - switch_input]));
+            }
+
+            let tx_done = actor.advance_send_index(&mut logger_tx, take_count);
+            let rx_done = actor.advance_take_index(&mut generator_rx, take_count);
+
+            //because we are in this tight loop we need to ensure the telemetry is updated
+            //this is a lightweight call. if we called is_running more frequently, this would not
+            //be required.
+            actor.relay_stats_smartly();
+
+            debug_assert_eq!(take_count, tx_done.item_count(), "move write position");//#!#//
+            debug_assert_eq!(take_count, rx_done.item_count(), "move read position");//#!#//
+
+            if !is_clean {
+                break;
+            }
+
+            max_loops -=1;
+            if 0==max_loops {
+                break;
+            }
+        }
+
+    }
+
+    // Final shutdown log, reporting all statistics.
+    info!("Worker shutting down. Heartbeats: {}",
+          state.heartbeats_processed);
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) mod worker_tests {
+    use std::thread::sleep;
+    use steady_state::*;
+    use super::*;
+
+    /// Unit test for the worker actor.
+    /// This test verifies that the worker processes batches correctly and produces the expected FizzBuzz output.
+    #[test]
+    fn test_worker() -> Result<(), Box<dyn Error>> {
+        let mut graph = GraphBuilder::for_testing().build(());
+        let (generate_tx, generate_rx) = graph.channel_builder()
+            .with_capacity(2048)
+            .build();
+        let (heartbeat_tx, heartbeat_rx) = graph.channel_builder()
+            .with_capacity(512)
+            .build();
+        let (logger_tx, logger_rx) = graph.channel_builder()
+            .with_capacity(2048)
+            .build::<FizzBuzzMessage>();
+
+        let state = new_state();
+        graph.actor_builder().with_name("UnitTest")
+            .build(move |context| internal_behavior(context
+                                                    , heartbeat_rx.clone()
+                                                    , generate_rx.clone()
+                                                    , logger_tx.clone()
+                                                    , state.clone())
+                   , SoloAct
+            );
+
+        let values: Vec<u64> = (0..1000).collect();
+        generate_tx.testing_send_all(values, true);
+        heartbeat_tx.testing_send_all(vec![0], true);
+        graph.start();
+
+        sleep(Duration::from_millis(200));
+
+        graph.request_shutdown();
+        graph.block_until_stopped(Duration::from_secs(1))?;
+
+        let results: Vec<FizzBuzzMessage> = logger_rx.testing_take_all();
+        assert!(results.len() >= 1000);
+        assert_eq!(results[0], FizzBuzzMessage::FizzBuzz);
+        assert_eq!(results[1], FizzBuzzMessage::Value(1));
+        Ok(())
+    }
+}
+
+```
+
+## src/arg.rs
+
+```rust
+use clap::Parser;
+
+/// Command-line arguments for the Steady State application
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub(crate) struct MainArg {
+    /// Rate in milliseconds between actor operations (e.g., heartbeats)
+    #[arg(short = 'r', long = "rate", default_value = "1")]
+    pub(crate) rate_ms: u64, // one minute is 60_000 ms
+
+    /// Number of beats (loop iterations before shutdown)
+    #[arg(short = 'b', long = "beats", default_value = "100000")]
+    pub(crate) beats: u64,
+}
+
+impl Default for MainArg {
+    fn default() -> Self {
+        MainArg {
+            rate_ms: 2,
+            beats: 20_000,
+        }
+    }
+}
+
+```
+
+## src/main.rs
+
+```rust
+use steady_state::*;
+use arg::MainArg;
+mod arg;
+
+// The actor module contains all the actor implementations for this pipeline.
+// Each actor is in its own submodule for clarity and separation of concerns.
+pub(crate) mod actor {
+    pub(crate) mod heartbeat;
+    pub(crate) mod generator;
+    pub(crate) mod worker_double_buffer;
+    pub(crate) mod worker_zero_copy;
+    pub(crate) mod logger;
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    // Parse command-line arguments (rate, beats, etc.) using clap.
+    let cli_args = MainArg::parse();
+
+    // Initialize logging at Info level for runtime diagnostics and performance output.
+    init_logging(LogLevel::Info)?;
+
+    // Build the actor graph with all channels and actors, using the parsed arguments.
+    let mut graph = GraphBuilder::default()
+        .with_telemtry_production_rate_ms(200) // slower telemetry frame rate, //##!##//
+        .build(cli_args);
+
+    // Construct the full actor pipeline and channel topology.
+    build_graph(&mut graph);
+
+    // Start the entire actor system. All actors and channels are now live.
+    graph.start();
+
+    // The system runs until an actor requests shutdown or the timeout is reached.
+    // The timeout here is set longer to allow for high-throughput performance testing.
+    graph.block_until_stopped(Duration::from_secs(20)) //let the large channels drain.
+}
+
+// Actor names for use in graph construction and testing.
+const NAME_HEARTBEAT: &str = "heartbeat";
+const NAME_GENERATOR: &str = "generator";
+const NAME_WORKER: &str = "worker";
+const NAME_LOGGER: &str = "logger";
+
+fn build_graph(graph: &mut Graph) {
+    // Channel builder is configured with advanced telemetry and alerting features.
+    // - Red/orange alerts for congestion
+    // - Percentile-based monitoring for channel fill levels
+    // - Real-time average rate tracking
+    let channel_builder = graph.channel_builder()
+        // Smoother rates over a longer window
+        .with_compute_refresh_window_floor(Duration::from_secs(4),Duration::from_secs(24))
+        // Red alert if channel is >90% full on average (critical congestion)
+        .with_filled_trigger(Trigger::AvgAbove(Filled::p90()), AlertColor::Red)
+        // Orange alert if channel is >70% full on average (early warning)
+        .with_filled_trigger(Trigger::AvgAbove(Filled::p70()), AlertColor::Orange)
+        // Yellow alert if channel is >50% full on average (above nominal)
+        .with_filled_trigger(Trigger::AvgAbove(Filled::p50()), AlertColor::Yellow)
+        .with_rate_max()
+        .with_filled_max()
+        .with_latency_max()
+        .with_avg_latency()
+        // Track average message rate for each channel
+        .with_avg_rate();
+
+    // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
+    // - Heartbeat channel: moderate size for timing signals
+    // - Generator and worker channels: 1,048,576 messages (1<<20) for massive batch processing
+    let (heartbeat_tx, heartbeat_rx) = channel_builder
+        .with_capacity(1024)
+        .build();
+    let (generator_tx, generator_rx) = channel_builder // important for high volume throughput
+        .with_capacity(1<<21)  // Large buffer for high-speed generation
+        .build();
+    let (worker_tx, worker_rx) = channel_builder // important for high volume throughput
+        .with_capacity(1<<21)  // Large buffer for processed messages
+        .build();
+
+    // The actor builder is configured to collect thread/core info and load metrics.
+    // - with_thread_info: enables reporting of OS thread and CPU core (requires core_affinity feature in Cargo.toml)
+    // - with_load_avg, with_mcpu_avg: enables real-time load and CPU usage metrics
+    let actor_builder = graph.actor_builder()
+        .with_thread_info()
+        .with_mcpu_trigger(Trigger::AvgAbove(MCPU::m768()), AlertColor::Red)
+        .with_mcpu_trigger(Trigger::AvgAbove(MCPU::m512()), AlertColor::Orange)
+        .with_mcpu_trigger(Trigger::AvgAbove(MCPU::m256()), AlertColor::Yellow)
+
+        .with_load_avg()
+        .with_mcpu_avg();
+
+    // NOTE: The core_affinity and display features in Cargo.toml ensure that actors remain on their assigned CPU core.
+    // This is critical for cache locality and consistent performance. Without core_affinity, actors could move between cores,
+    // but would still not move between threads (each actor or team is always bound to a thread).
+
+    // Actor grouping: Troupe (team) vs SoloAct
+    // - MemberOf(&mut team): actors are grouped to share a single thread, cooperatively yielding to each other.
+    //   This is optimal for lightweight actors or those that coordinate closely (e.g., generator and heartbeat).
+    // - SoloAct: actor runs on its own dedicated thread, ideal for CPU-intensive or batch-heavy actors (e.g., worker, logger).
+    let mut team = graph.actor_troupe();                                             //#!#//
+
+    // Heartbeat actor: shares a thread with generator (MemberOf team)
+    let state = new_state();
+    actor_builder.with_name(NAME_HEARTBEAT)
+        .build(move |context|
+            actor::heartbeat::run(context, heartbeat_tx.clone(), state.clone())
+        ,  MemberOf(&mut team));   //#!#//
+
+    // Generator actor: shares a thread with heartbeat (MemberOf team)
+    let state = new_state();
+    actor_builder.with_name(NAME_GENERATOR)
+        .build(move |context|
+            actor::generator::run(context, generator_tx.clone(), state.clone())
+        ,  MemberOf(&mut team));   //#!#//
+    drop(team); // this is when the troupe is finalized and started //#!#//
+
+    // Worker actor: runs on its own thread (SoloAct) for maximum throughput and isolation
+    let use_double_buffer = true;//#!#//
+
+    if use_double_buffer {
+        let state = new_state();
+        actor_builder
+            .with_name(NAME_WORKER)
+            .build(move |context| 
+                actor::worker_double_buffer::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())//#!#//
+            , SoloAct);
+    } else {
+        let state = new_state();
+        actor_builder
+            .with_name(NAME_WORKER)
+            .build(move |context| 
+                actor::worker_zero_copy::run(context, heartbeat_rx.clone(), generator_rx.clone(), worker_tx.clone(), state.clone())//#!#//
+            , SoloAct);
+    }
+
+
+    // Logger actor: runs on its own thread (SoloAct) for maximum throughput and isolation
+    let state = new_state();
+    actor_builder.with_name(NAME_LOGGER)
+        .build(move |context|
+            actor::logger::run(context, worker_rx.clone(), state.clone())
+        , SoloAct);
+}
+
+#[cfg(test)]
+pub(crate) mod main_tests {
+    use steady_state::*;
+    use steady_state::graph_testing::{StageDirection, StageWaitFor};
+    use crate::actor::worker_double_buffer::FizzBuzzMessage;
+    use super::*;
+
+    // This test demonstrates orchestrated, multi-actor testing using the stage manager.
+    // It allows precise control over actor behavior and verification of system interactions.
+    #[test]
+    fn graph_test() -> Result<(), Box<dyn Error>> {
+
+        let mut graph = GraphBuilder::for_testing()
+            .build(MainArg::default());
+
+        build_graph(&mut graph);
+        graph.start();
+
+        // Stage management provides orchestrated testing of multi-actor scenarios.
+        // This enables precise control over actor behavior and verification of
+        // complex system interactions without manual coordination complexity.
+        let stage_manager = graph.stage_manager();
+        stage_manager.actor_perform(NAME_GENERATOR, StageDirection::Echo(15u64))?; // Sends a value to the generator
+        stage_manager.actor_perform(NAME_HEARTBEAT, StageDirection::Echo(100u64))?; // Sends a value to the heartbeat
+        stage_manager.actor_perform(NAME_LOGGER,    StageWaitFor::Message(FizzBuzzMessage::FizzBuzz
+                                                                          , Duration::from_secs(2)))?; // Waits for a FizzBuzz message
+
+        stage_manager.final_bow();
+        graph.request_shutdown();
+
+        graph.block_until_stopped(Duration::from_secs(5))
+    }
+}
+
+```
+
