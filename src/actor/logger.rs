@@ -20,9 +20,9 @@ pub async fn run(actor: SteadyActorShadow, fizz_buzz_rx: SteadyRx<FizzBuzzMessag
 
 async fn internal_behavior<A: SteadyActor>(mut cmd: A, rx: SteadyRx<FizzBuzzMessage>, state: SteadyState<LoggerState>) -> Result<(),Box<dyn Error>> {
 
-    let mut rx = rx.lock().await;
+    let mut rx = rx.acquire_guard().await;
     
-    let mut state = state.lock(|| LoggerState {
+    let mut state = state.acquire_guard(|| LoggerState {
         messages_logged: 0,
         fizz_count: 0,
         buzz_count: 0,

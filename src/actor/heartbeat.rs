@@ -32,8 +32,8 @@ async fn internal_behavior<A: SteadyActor>(mut actor: A
     let rate = Duration::from_millis(args.rate_ms);
     let beats = args.beats;
 
-    let mut state = state.lock(|| HeartbeatState{ count: 0}).await;
-    let mut heartbeat_tx = heartbeat_tx.lock().await;
+    let mut state = state.acquire_guard(|| HeartbeatState{ count: 0}).await;
+    let mut heartbeat_tx = heartbeat_tx.acquire_guard().await;
 
     // Shutdown coordination with proper channel cleanup signaling.
     while actor.is_running(|| heartbeat_tx.mark_closed()) {

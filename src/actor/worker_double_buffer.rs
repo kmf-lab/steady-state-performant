@@ -76,16 +76,16 @@ async fn internal_behavior<A: SteadyActor>(
     logger: SteadyTx<FizzBuzzMessage>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut logger = logger.lock().await;
-    let mut heartbeat = heartbeat.lock().await;
-    let mut generator = generator.lock().await;
+    let mut logger = logger.acquire_guard().await;
+    let mut heartbeat = heartbeat.acquire_guard().await;
+    let mut generator = generator.acquire_guard().await;
     // SLICES determines how many times we process a half-batch before yielding.
     // For double-buffering, this is set to 2.
     const SLICES: usize = 2; // important for high volume throughput
 
     // Initialize the actor's state, setting batch_size to half the generator channel's capacity.
     // This ensures that the producer can fill one half while the consumer processes the other.
-    let mut state = state.lock(|| WorkerState {
+    let mut state = state.acquire_guard(|| WorkerState {
         heartbeats_processed: 0,
         values_processed: 0,
         messages_sent: 0,

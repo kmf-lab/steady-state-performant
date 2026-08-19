@@ -15,9 +15,9 @@ pub async fn run(actor: SteadyActorShadow, generated_tx: SteadyTx<u64>, state: S
 
 async fn internal_behavior<A: SteadyActor>(mut actor: A, generated: SteadyTx<u64>, state: SteadyState<GeneratorState> ) -> Result<(),Box<dyn Error>> {
 
-    let mut generated = generated.lock().await;
+    let mut generated = generated.acquire_guard().await;
 
-    let mut state = state.lock(|| GeneratorState {
+    let mut state = state.acquire_guard(|| GeneratorState {
         total_generated: 0,
     }).await;
     let wait_for= generated.capacity()/2;

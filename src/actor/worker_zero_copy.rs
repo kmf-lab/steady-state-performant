@@ -37,13 +37,13 @@ async fn internal_behavior<A: SteadyActor>(
     logger_tx: SteadyTx<FizzBuzzMessage>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut logger_tx = logger_tx.lock().await;
-    let mut heartbeat_rx = heartbeat_rx.lock().await;
-    let mut generator_rx = generator_rx.lock().await;
+    let mut logger_tx = logger_tx.acquire_guard().await;
+    let mut heartbeat_rx = heartbeat_rx.acquire_guard().await;
+    let mut generator_rx = generator_rx.acquire_guard().await;
 
     // Initialize the actor's state, setting batch_size to half the generator channel's capacity.
     // This ensures that the producer can fill one half while the consumer processes the other.
-    let mut state = state.lock(|| WorkerState {
+    let mut state = state.acquire_guard(|| WorkerState {
         heartbeats_processed: 0,
     }).await;
 
