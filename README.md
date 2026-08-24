@@ -1,3 +1,4 @@
+[![Leaderboard](https://my.kmf-lab.com/leaderboard/static/badge/leaderboard/kmf-lab/steady-state-performant.svg)](https://my.kmf-lab.com/leaderboard/kmf-lab/steady-state-performant)
 # Steady State Performant
 
 > **Mechanically Sympathetic, Cache-Friendly High-Throughput Actors**
